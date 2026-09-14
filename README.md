@@ -25,6 +25,12 @@ automatically.
 | `03_retest_stability.R` | Retest-stability summaries |
 | `run_all.R` | Runs the four scripts in order |
 
+The descriptive-table script performs equivalence analyses for every
+characteristic reported with an effect-size estimate in Main Table 1 and
+Supplementary Tables 1 and 2. Continuous variables use two one-sided tests
+with the bound |d| < 0.10. Categorical variables use a one-sided upper
+confidence limit for Cramér's V with the bound V < 0.10.
+
 ### `02_gamlss`
 
 | File | Purpose |

@@ -42,8 +42,13 @@ format_n_pct <- function(x, level) {
 cohens_d <- function(x, y) {
   x <- x[is.finite(x)]
   y <- y[is.finite(y)]
-  unpooled_sd <- sqrt((stats::var(x) + stats::var(y)) / 2)
-  (mean(x) - mean(y)) / unpooled_sd
+  nx <- length(x)
+  ny <- length(y)
+  pooled_sd <- sqrt(
+    ((nx - 1) * stats::var(x) + (ny - 1) * stats::var(y)) /
+      (nx + ny - 2)
+  )
+  (mean(x) - mean(y)) / pooled_sd
 }
 
 cramers_v <- function(x, group) {
@@ -53,13 +58,8 @@ cramers_v <- function(x, group) {
   tab <- table(x, group)
   test <- suppressWarnings(stats::chisq.test(tab, correct = FALSE))
   n <- sum(tab)
-  rows <- nrow(tab)
-  columns <- ncol(tab)
-  phi_squared <- unname(test$statistic) / n
-  phi_squared_corrected <- max(0, phi_squared - ((columns - 1) * (rows - 1)) / (n - 1))
-  rows_corrected <- rows - ((rows - 1)^2) / (n - 1)
-  columns_corrected <- columns - ((columns - 1)^2) / (n - 1)
-  sqrt(phi_squared_corrected / min(columns_corrected - 1, rows_corrected - 1))
+  k <- min(nrow(tab) - 1, ncol(tab) - 1)
+  sqrt(unname(test$statistic) / (n * k))
 }
 
 continuous_tost <- function(x, y, bound = 0.10, alpha = 0.05) {
@@ -83,8 +83,10 @@ continuous_tost <- function(x, y, bound = 0.10, alpha = 0.05) {
   data.frame(
     effect_measure = "Cohen's d",
     estimate = difference / pooled_sd,
-    ci90_lower = ci_raw[1] / pooled_sd,
-    ci90_upper = ci_raw[2] / pooled_sd,
+    interval_lower = ci_raw[1] / pooled_sd,
+    interval_upper = ci_raw[2] / pooled_sd,
+    confidence_level = 0.90,
+    interval_type = "Two-sided",
     equivalence_bound = bound,
     equivalence_p = max(p_lower, p_upper),
     equivalent = max(p_lower, p_upper) < alpha
@@ -113,14 +115,61 @@ categorical_equivalence <- function(x, group, bound = 0.10, alpha = 0.05) {
   while (objective(upper_limit) > 0 && upper_limit < 1e9) upper_limit <- upper_limit * 2
   upper_ncp <- stats::uniroot(objective, interval = c(0, upper_limit))$root
   data.frame(
-    effect_measure = "Cramer's V",
+    effect_measure = "Cram\u00e9r's V",
     estimate = estimate,
-    ci90_lower = 0,
-    ci90_upper = sqrt(upper_ncp / (n * k)),
+    interval_lower = 0,
+    interval_upper = sqrt(upper_ncp / (n * k)),
+    confidence_level = 0.95,
+    interval_type = "One-sided upper",
     equivalence_bound = bound,
     equivalence_p = p_equivalence,
     equivalent = p_equivalence < alpha
   )
+}
+
+run_equivalence_tests <- function(data, group, group_levels, variables,
+                                  bound_d = 0.10, bound_v = 0.10,
+                                  alpha = 0.05) {
+  group <- factor(group, levels = group_levels)
+  rows <- lapply(variables, function(spec) {
+    value <- data[[spec$variable]]
+    if (spec$type == "continuous") {
+      x <- value[group == group_levels[1]]
+      y <- value[group == group_levels[2]]
+      result <- continuous_tost(x, y, bound = bound_d, alpha = alpha)
+      difference_p <- stats::wilcox.test(x, y, exact = FALSE)$p.value
+    } else {
+      result <- categorical_equivalence(value, group, bound = bound_v, alpha = alpha)
+      keep <- stats::complete.cases(value, group)
+      test_table <- table(
+        droplevels(as.factor(value[keep])),
+        droplevels(as.factor(group[keep]))
+      )
+      difference_p <- suppressWarnings(
+        stats::chisq.test(test_table, correct = FALSE)$p.value
+      )
+    }
+    data.frame(
+      variable = spec$variable,
+      Characteristic = spec$label,
+      result,
+      difference_p = difference_p,
+      dagger = isTRUE(result$equivalent),
+      check.names = FALSE
+    )
+  })
+  do.call(rbind, rows)
+}
+
+add_equivalence_markers <- function(table_data, equivalence_results) {
+  marked <- equivalence_results[equivalence_results$dagger, , drop = FALSE]
+  for (i in seq_len(nrow(marked))) {
+    row <- which(table_data$Characteristic == marked$Characteristic[i])
+    if (length(row) == 1L && nzchar(table_data$`Effect size`[row])) {
+      table_data$`Effect size`[row] <- paste0(table_data$`Effect size`[row], "\u2020")
+    }
+  }
+  table_data
 }
 
 comparison_table <- function(data, group, group_levels, variables, overall_label) {
