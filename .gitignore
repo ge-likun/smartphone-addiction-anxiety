@@ -1,69 +1,13 @@
-# ============================================================
-# R and RStudio
-# ============================================================
-
-.Rhistory
-.RData
-.Ruserdata
-.Rproj.user/
-.Renviron
-
-# ============================================================
-# Restricted participant-level data
-# ============================================================
-
-data/
-private/
-restricted_data/
-raw_data/
-processed_data/
-local_data/
-
-# ============================================================
-# Common participant-level data formats
-# Conservative rules to prevent accidental uploads
-# ============================================================
-
-*.rds
-*.RDS
-*.RData
-*.sav
-*.dta
-*.xlsx
-*.xls
-*.csv
-*.parquet
-*.feather
-
-# Allow explicitly public or synthetic CSV files
-!synthetic_data/*.csv
-!docs/*.csv
-
-# ============================================================
-# Secrets and local configuration
-# ============================================================
-
-.env
-.env.*
-*.key
-*.pem
-secrets/
-config/local_paths.R
-
-# ============================================================
-# Temporary and system files
-# ============================================================
-
-~$*
-*.tmp
-*.log
+/analysis_data.csv
+/retest_data.csv
+/network_data.csv
+/results/
+**/brms_model.rds
+**/*.RData
+**/*.rda
+**/*.rds
+**/local_config.R
+*.Rhistory
+*.Rproj.user/
 .DS_Store
 Thumbs.db
-
-# ============================================================
-# Generated outputs
-# Keep only the explanatory README by default
-# ============================================================
-
-outputs/*
-!outputs/README.md
