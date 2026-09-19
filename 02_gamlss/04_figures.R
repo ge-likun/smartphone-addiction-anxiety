@@ -115,6 +115,13 @@ histogram_rectangles <- function(data, grouping, y_limits, display_multiplier) {
     )
 }
 
+check_curve_limits <- function(curves, y_limits, panel_name) {
+  bounds <- c(curves$ratio_low, curves$ratio_high)
+  if (any(!is.finite(bounds)) || any(bounds < y_limits[1] | bounds > y_limits[2])) {
+    stop("Curve interval exceeds the plotting range in ", panel_name)
+  }
+}
+
 figure2_row_tag <- function(label) {
   ggplot() +
     annotate(
@@ -130,6 +137,7 @@ overall_panel <- function(parameter, support_key) {
   y_limits <- overall_limits[[parameter]]
   curves <- curve_data |>
     filter(.data$model_set == "overall", .data$parameter == .env$parameter, .data$support_key == .env$support_key)
+  check_curve_limits(curves, y_limits, paste("overall", parameter, support_key))
   hist <- histogram_density |>
     filter(.data$model_set == "overall", .data$support_key == .env$support_key) |>
     histogram_rectangles("addiction_group", y_limits, overall_histogram_display_multiplier)
@@ -191,6 +199,7 @@ sex_panel <- function(parameter, addiction_group, support_key) {
       .data$model_set == "sex_stratified", .data$parameter == .env$parameter,
       .data$addiction_group == .env$addiction_group, .data$support_key == .env$support_key
     )
+  check_curve_limits(curves, y_limits, paste("sex-stratified", addiction_group, parameter, support_key))
   hist <- histogram_density |>
     filter(
       .data$model_set == "sex_stratified", .data$addiction_group == .env$addiction_group,

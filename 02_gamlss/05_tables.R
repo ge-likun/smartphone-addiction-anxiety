@@ -1,5 +1,14 @@
 format_number <- function(x, digits = 1) formatC(x, format = "f", digits = digits, big.mark = ",")
 
+write_publication_docx <- function(document, target) {
+  temporary <- tempfile(pattern = "gamlss_table_", fileext = ".docx")
+  on.exit(unlink(temporary), add = TRUE)
+  print(document, target = temporary)
+  if (!file.copy(temporary, target, overwrite = TRUE)) {
+    stop("Unable to write table: ", target)
+  }
+}
+
 residual_columns <- residual_diagnostic_summary |>
   select(
     family, model_id,
@@ -219,7 +228,7 @@ table6_note <- paste(
     "All ", nrow(family_fit_status),
     " candidate models converged and used the intended observations and parameter equations."
   ),
-  "AIC and BIC are compared only within the same stratum and likelihood set: section a compares NO, ZAGA and ZAIG, and section b compares ZANBI and ZABB. Values are not compared across sections or across strata.",
+  "AIC and BIC comparisons within a stratum are limited to ZAGA versus ZAIG and ZANBI versus ZABB. NO is shown as a Gaussian baseline but is not ranked against the zero-adjusted models because its density at zero and their point probability at zero have different likelihood scales. Values are not compared across strata.",
   "NO, Gaussian; ZAGA, zero-adjusted Gamma; ZAIG, zero-adjusted inverse Gaussian; ZANBI, zero-adjusted negative binomial type I; ZABB, zero-adjusted beta-binomial.",
   "Residual summaries are medians across 50 normalized quantile-residual evaluations; randomized draws were used at probability masses, whereas Gaussian residuals were deterministic.",
   "The maximum absolute central Q-Q deviation is evaluated over theoretical unit-normal quantiles from -2.5 to 2.5, and the mean upper-tail deviation over quantiles greater than 2.5. These summaries and the percentages outside the pointwise envelopes are descriptive rather than formal goodness-of-fit tests.",
@@ -240,7 +249,7 @@ table6_doc <- add_document_text(table6_doc, "Supplementary Table 6 | Distributio
 table6_doc <- add_document_text(table6_doc, "c  Upper-boundary behaviour across all candidate families", 10, TRUE)
 table6_doc <- body_add_flextable(table6_doc, publication_flextable(table6c_word, c(1, 2)))
 table6_doc <- add_document_text(table6_doc, paste0("Note. ", table6_note), 10, FALSE, 0)
-print(table6_doc, target = file.path(output_dirs$tables, "Supplementary_Table_6.docx"))
+write_publication_docx(table6_doc, file.path(output_dirs$tables, "Supplementary_Table_6.docx"))
 
 table7_note <- paste(
   "All models used the ZAGA family and converged.",
@@ -251,7 +260,7 @@ table7_doc <- new_landscape_document()
 table7_doc <- add_document_text(table7_doc, "Supplementary Table 7 | Fit statistics for the six primary ZAGA models", 11, TRUE)
 table7_doc <- body_add_flextable(table7_doc, publication_flextable(table7, c(1, 3)))
 table7_doc <- add_document_text(table7_doc, paste0("Note. ", table7_note), 10, FALSE, 0)
-print(table7_doc, target = file.path(output_dirs$tables, "Supplementary_Table_7.docx"))
+write_publication_docx(table7_doc, file.path(output_dirs$tables, "Supplementary_Table_7.docx"))
 
 table8_word <- table8 |>
   mutate(
@@ -287,7 +296,7 @@ table8_doc <- new_landscape_document()
 table8_doc <- add_document_text(table8_doc, "Supplementary Table 8 | Approximate joint comparisons of support-association shapes in pooled ZAGA models", 11, TRUE)
 table8_doc <- body_add_flextable(table8_doc, table8_ft)
 table8_doc <- add_document_text(table8_doc, paste0("Note. ", table8_note), 10, FALSE, 0)
-print(table8_doc, target = file.path(output_dirs$tables, "Supplementary_Table_8.docx"))
+write_publication_docx(table8_doc, file.path(output_dirs$tables, "Supplementary_Table_8.docx"))
 
 writexl::write_xlsx(
   list(

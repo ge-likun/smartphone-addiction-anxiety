@@ -1,5 +1,5 @@
 required_packages <- c(
-  "brms", "posterior", "rstan", "qgraph", "ggplot2", "dplyr",
+  "brms", "posterior", "rstan", "bayesplot", "qgraph", "ggplot2", "dplyr",
   "tidyr", "patchwork", "officer", "flextable"
 )
 
@@ -14,4 +14,3 @@ if (length(missing_packages)) {
     call. = FALSE
   )
 }
-

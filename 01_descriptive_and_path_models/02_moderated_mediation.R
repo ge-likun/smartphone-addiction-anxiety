@@ -26,6 +26,15 @@ if (any(!complete_rows)) {
   message(sum(!complete_rows), " rows with missing model variables were excluded.")
   dat <- dat[complete_rows, , drop = FALSE]
 }
+if (nrow(dat) == 0L) stop("No complete observations remain.")
+if (any(!is.finite(dat$mpiq_total)) ||
+    any(dat$mpiq_total != floor(dat$mpiq_total)) ||
+    any(dat$mpiq_total < 8 | dat$mpiq_total > 56)) {
+  stop("mpiq_total must contain integer scores from 8 to 56.")
+}
+if (any(!dat$survey_year %in% c(2023, 2024))) {
+  stop("survey_year must contain only 2023 and 2024.")
+}
 
 dat$sex_group <- factor(dat$sex, levels = c("Female", "Male"))
 if (anyNA(dat$sex_group)) stop("sex must contain only Female and Male.")

@@ -4,6 +4,10 @@ This repository contains the R code used for three parts of the manuscript:
 descriptive and sex-grouped path analyses, GAMLSS distributional regression,
 and Bayesian longitudinal network analysis.
 
+The AMOS confirmatory factor analysis and preparation of the de-identified
+input datasets are outside this repository. Their outputs cannot be reproduced
+from these scripts alone.
+
 ## Software
 
 The reference analyses used R 4.5.1. The descriptive and path-model workflow
@@ -23,13 +27,67 @@ automatically.
 | `01_descriptive_tables.R` | Main Table 1 and Supplementary Tables 1 and 2 |
 | `02_moderated_mediation.R` | Sex-grouped conditional-association models and Supplementary Table 5 |
 | `03_retest_stability.R` | Retest-stability summaries |
-| `run_all.R` | Runs the four scripts in order |
+| `04_binary_addiction_path_models.R` | Binary addiction-status sensitivity analysis of the sex-grouped path models |
+| `04_binary_addiction_path_models_manual_check.R` | Point-estimate check for the binary sensitivity models without bootstrap resampling |
+| `05_combine_binary_runs.R` | Combines separately fitted support-source results after completion checks |
+| `run_all.R` | Runs the descriptive, continuous-MPIQ path and retest analyses |
+| `run_binary_sensitivity.R` | Runs the binary addiction-status sensitivity analysis separately |
+| `run_combine_binary_runs.R` | Combines separately fitted binary-sensitivity results |
 
 The descriptive-table script performs equivalence analyses for every
 characteristic reported with an effect-size estimate in Main Table 1 and
 Supplementary Tables 1 and 2. Continuous variables use two one-sided tests
 with the bound |d| < 0.10. Categorical variables use a one-sided upper
 confidence limit for Cramér's V with the bound V < 0.10.
+
+The primary path models use continuous MPIQ scores. The binary sensitivity
+models use the predefined classification of scores greater than 32 as addicted
+and scores of 32 or lower as non-addicted. The continuous and binary exposure
+specifications are fitted in separate models.
+
+To run the binary sensitivity analysis, set the input and output paths, then
+source its runner from `01_descriptive_and_path_models`:
+
+```r
+Sys.setenv(
+  ANALYSIS_DATA_FILE = "path/to/analysis_data.csv",
+  BINARY_PATH_OUTPUT_DIR = "results/01_binary_addiction_path_models",
+  BOOTSTRAP_REPS = "5000"
+)
+source("run_binary_sensitivity.R", encoding = "UTF-8")
+```
+
+The binary script uses 5,000 bootstrap samples by default. The independent
+point-estimate check fits the two equations with ordinary least squares and
+compares all sex-specific path coefficients with the lavaan output:
+
+```r
+source("04_binary_addiction_path_models_manual_check.R", encoding = "UTF-8")
+```
+
+For separate runs of the three support sources, `SUPPORT_SOURCE` may be set to
+`kinship_support`, `offline_friend_support` or `online_friend_support`. Each
+run needs a separate `BINARY_PATH_OUTPUT_DIR` to retain its output files.
+When the three result directories are named `kinship`, `offline` and `online`
+under one parent directory, they can be combined without refitting:
+
+```r
+Sys.setenv(
+  BINARY_PARALLEL_BASE_DIR = "path/to/separate_results",
+  BINARY_PATH_OUTPUT_DIR = "results/01_binary_addiction_path_models"
+)
+source("run_combine_binary_runs.R", encoding = "UTF-8")
+```
+
+The resulting coefficient file reports the sex-specific paths and the defined
+female-minus-male contrasts. In these models, `b1` is the support coefficient
+in the non-addicted group, `b1 + b2` is the corresponding coefficient in the
+addicted group, and `b2` is their difference. Product terms are reported as
+cross-sectional association summaries. Reported P values use a two-sided
+normal approximation with bootstrap standard errors; confidence intervals
+are bias-corrected bootstrap intervals. The binary models assess associations
+under the stated grouping rule and do not validate the cut-off as a clinical
+threshold.
 
 ### `02_gamlss`
 
@@ -45,9 +103,16 @@ confidence limit for Cramér's V with the bound V < 0.10.
 | `run_all.R` | Runs the seven scripts in order |
 
 The GAMLSS code combines the verified order-safe ZANBI implementation used for
-the reported discrete sensitivity results with data-fingerprinted model cache
-names. Information criteria are compared only within the continuous/mixed set
-(NO, ZAGA and ZAIG) and within the discrete set (ZANBI and ZABB).
+the reported discrete sensitivity results with model cache names keyed to the
+data and the installed `gamlss` and `gamlss.dist` versions. Within each
+stratum, information-criterion differences are calculated for ZAGA versus
+ZAIG and for ZANBI versus ZABB. The Gaussian model is retained as a baseline;
+its density at zero is not ranked against the zero-adjusted models' point
+probability at zero.
+The shaded intervals in Figures 2 and 3 and Supplementary Figures 5–7 come
+from a post-estimation LOESS summary of fitted values. They are descriptive
+intervals for that summary, not GAMLSS parameter confidence intervals or
+tests of differences between curves.
 
 ### `03_bayesian_network`
 
@@ -75,6 +140,16 @@ Participant-level data and fitted models are not included. The default input
 files are `analysis_data.csv`, `retest_data.csv` and `network_data.csv` in the
 repository root. These filenames are excluded by `.gitignore`.
 
+`analysis_data.csv` must be the integrated cross-sectional analysis dataset.
+It includes `retest_status` for participants surveyed in 2023 so that
+Supplementary Table 2 can be generated. A pooled dataset without this field
+is insufficient for `01_descriptive_tables.R`. The path models additionally
+require `mpiq_total`, `addiction_group`, `gad7_total`, `survey_year`, `sex` and
+the three support scores. `retest_data.csv` contains one row per linked pair
+with the T1 and T2 support scores. `network_data.csv` contains the linked
+T1 and T2 support scores and item-level GAD-7 and MPIQ responses. The scripts
+check their required columns and coding before analysis.
+
 Alternative locations can be supplied before running the code:
 
 ```r
@@ -100,6 +175,9 @@ Set the working directory to the relevant analysis folder and source its runner.
 setwd("01_descriptive_and_path_models")
 source("run_all.R", encoding = "UTF-8")
 
+# Binary addiction-status sensitivity analysis
+source("run_binary_sensitivity.R", encoding = "UTF-8")
+
 # GAMLSS analyses
 setwd("../02_gamlss")
 source("run_all.R", encoding = "UTF-8")
@@ -112,6 +190,13 @@ source("run_postprocessing.R", encoding = "UTF-8")
 The Bayesian model is fitted only when `run_fit_model.R` is sourced. Model
 fitting is computationally intensive. The post-processing scripts use an
 existing fitted model and do not start a new fit.
+
+The reference Bayesian fit used four chains, 4,000 iterations per chain,
+2,000 warmup iterations, seed 123, `adapt_delta = 0.90` and maximum tree
+depth 10. Of 8,000 retained transitions, 5,699 reached that depth. The
+diagnostic script reports this condition. A refit with a different maximum
+tree depth, such as `NETWORK_MAX_TREEDEPTH = "15"`, produces a new fitted
+model whose diagnostics and results should be reviewed separately.
 
 Generated files are written under `results/`, which is excluded from version
 control. Each workflow writes software information with its results.

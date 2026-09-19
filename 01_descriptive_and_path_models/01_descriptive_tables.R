@@ -138,6 +138,20 @@ retest_counts <- table(baseline$retest_status)
 if (nrow(baseline) == 0L || any(retest_counts == 0L)) {
   stop("The 2023 cohort must contain both retested and non-retested participants.")
 }
+year4_total <- sum(baseline$grade == "Year 4", na.rm = TRUE)
+year4_retested <- sum(
+  baseline$grade == "Year 4" & baseline$retest_status == "Retested",
+  na.rm = TRUE
+)
+year4_note <- if (year4_total > 0L) {
+  paste0(
+    "Of ", format(year4_total, big.mark = ","),
+    " Year-4 participants, ", format(year4_retested, big.mark = ","),
+    " had linked follow-up data."
+  )
+} else {
+  ""
+}
 
 baseline_demographic_specs <- list(
   list(variable = "age_years", label = "Age, years", type = "continuous"),
@@ -214,7 +228,7 @@ save_table_docx(
       " in 2024; body mass index was available for ",
       format(sum(is.finite(dat$bmi_kg_m2[dat$survey_wave == "2023"])), big.mark = ","),
       " and ", format(sum(is.finite(dat$bmi_kg_m2[dat$survey_wave == "2024"])), big.mark = ","),
-      ", respectively. All other variables were complete."
+      ", respectively."
     ),
     "Cohen's d is calculated as 2023 minus 2024; Cram\u00e9r's V is unsigned.",
     "Equivalence analyses covered all characteristics shown with effect sizes and used bounds of |d| < 0.10 and V < 0.10.",
@@ -234,13 +248,14 @@ save_table_docx(
       format(sum(is.finite(baseline$bmi_kg_m2[baseline$retest_status == "Not retested"])), big.mark = ","),
       " participants without linked follow-up data and ",
       format(sum(is.finite(baseline$bmi_kg_m2[baseline$retest_status == "Retested"])), big.mark = ","),
-      " participants with linked follow-up data. All other variables were complete."
+      " participants with linked follow-up data."
     ),
     "Cohen's d is calculated as not retested minus retested; Cram\u00e9r's V is unsigned.",
     "Equivalence analyses covered all characteristics shown with effect sizes and used bounds of |d| < 0.10 and V < 0.10.",
     "\u2020 The equivalence criterion was met. Continuous-variable equivalence was assessed using two one-sided tests (TOST); the 90% confidence interval for Cohen's d lay within -0.10 to 0.10.",
     "For categorical variables, the one-sided 95% upper confidence limit for Cram\u00e9r's V was below 0.10.",
-    "Only 5 of 2,726 Year-4 participants had linked follow-up data, contributing to the younger age and different grade distribution of the retested group. MPIQ, Mobile Phone Involvement Questionnaire; GAD-7, Generalized Anxiety Disorder-7."
+    year4_note,
+    "MPIQ, Mobile Phone Involvement Questionnaire; GAD-7, Generalized Anxiety Disorder-7."
   ),
   file.path(output_dir, "Supplementary_Table_2_publication.docx")
 )

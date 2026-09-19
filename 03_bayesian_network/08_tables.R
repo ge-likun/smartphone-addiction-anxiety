@@ -48,7 +48,12 @@ save_publication_table <- function(data, title, note, file, landscape = FALSE) {
   )
   if (landscape) document <- officer::body_end_section_landscape(document)
 
-  print(document, target = file)
+  staged_file <- tempfile(pattern = "network-table-", fileext = ".docx")
+  on.exit(unlink(staged_file), add = TRUE)
+  print(document, target = staged_file)
+  if (!file.copy(staged_file, file, overwrite = TRUE)) {
+    stop("Could not save table: ", file)
+  }
   invisible(file)
 }
 

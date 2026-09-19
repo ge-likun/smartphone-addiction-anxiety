@@ -1,9 +1,9 @@
 script_directory <- function() {
   sourced_file <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
   if (length(sourced_file) && file.exists(sourced_file)) {
-    return(dirname(normalizePath(sourced_file)))
+    return(dirname(sourced_file))
   }
-  normalizePath(getwd())
+  getwd()
 }
 
 analysis_directory <- script_directory()

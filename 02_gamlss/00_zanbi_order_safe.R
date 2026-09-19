@@ -1,5 +1,5 @@
 ZANBI_ORDER_SAFE_ID <- paste0(
-  "gamlss.dist::ZANBI order-safe zero-vector patch; gamlss.dist ",
+  "gamlss.dist::ZANBI order-safe implementation; gamlss.dist ",
   as.character(utils::packageVersion("gamlss.dist"))
 )
 
@@ -33,7 +33,7 @@ dZANBI_order_safe <- function(x, mu = 1, sigma = 1, nu = 0.3, log = FALSE) {
     log(1 - nu) + log_probability_nbi - log(1 - exp(log_probability_zero_nbi))
   )
   result <- if (isTRUE(log)) log_probability else exp(log_probability)
-  ifelse(x < 0, 0, result)
+  ifelse(x < 0, if (isTRUE(log)) -Inf else 0, result)
 }
 
 pZANBI_order_safe <- function(q, mu = 1, sigma = 1, nu = 0.3,
@@ -53,9 +53,10 @@ pZANBI_order_safe <- function(q, mu = 1, sigma = 1, nu = 0.3,
     nu,
     nu + (1 - nu) * (cdf_nbi - cdf_zero_nbi) / (1 - cdf_zero_nbi)
   )
+  probability <- ifelse(q < 0, 0, probability)
   if (!isTRUE(lower.tail)) probability <- 1 - probability
   if (isTRUE(log.p)) probability <- log(probability)
-  ifelse(q < 0, 0, probability)
+  probability
 }
 
 qZANBI_order_safe <- function(p, mu = 1, sigma = 1, nu = 0.3,

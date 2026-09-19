@@ -102,7 +102,11 @@ fingerprint_file <- tempfile(pattern = "gamlss_data_", fileext = ".rds")
 saveRDS(analysis_data, fingerprint_file, compress = FALSE)
 data_fingerprint <- unname(tools::md5sum(fingerprint_file))
 unlink(fingerprint_file)
-model_cache_tag <- substr(data_fingerprint, 1L, 12L)
+model_cache_tag <- paste0(
+  substr(data_fingerprint, 1L, 12L),
+  "_g", gsub("\\.", "", as.character(utils::packageVersion("gamlss"))),
+  "_d", gsub("\\.", "", as.character(utils::packageVersion("gamlss.dist")))
+)
 
 support_variables <- c(
   Kinship = "kinship_support",
@@ -170,11 +174,17 @@ save_publication_figure <- function(plot, basename, width_mm = 183, height_mm = 
     if (!copied) stop("Unable to write figure: ", target)
   }
   write_raster(ragg::agg_png, ".png", background = "white")
-  grDevices::cairo_pdf(paste0(basename, ".pdf"), width = width_in, height = height_in, family = "Arial")
-  print(plot)
-  grDevices::dev.off()
-  svglite::svglite(paste0(basename, ".svg"), width = width_in, height = height_in)
-  print(plot)
-  grDevices::dev.off()
+  write_vector <- function(device, extension, ...) {
+    target <- paste0(basename, extension)
+    temporary <- tempfile(pattern = "gamlss_figure_", fileext = extension)
+    device(temporary, ...)
+    print(plot)
+    grDevices::dev.off()
+    copied <- file.copy(temporary, target, overwrite = TRUE)
+    unlink(temporary)
+    if (!copied) stop("Unable to write figure: ", target)
+  }
+  write_vector(grDevices::cairo_pdf, ".pdf", width = width_in, height = height_in, family = "Arial")
+  write_vector(svglite::svglite, ".svg", width = width_in, height = height_in)
   write_raster(ragg::agg_tiff, ".tiff", background = "white", compression = "lzw")
 }

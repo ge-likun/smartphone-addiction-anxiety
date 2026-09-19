@@ -17,6 +17,9 @@ map_integrated_retest_data <- function(data, nodes = network_nodes) {
   if (length(absent)) {
     stop("The retest file is missing: ", paste(absent, collapse = ", "), call. = FALSE)
   }
+  if (any(!data$addiction_group_t1 %in% c("Non-addicted", "Addicted"), na.rm = TRUE)) {
+    stop("addiction_group_t1 must contain Non-addicted or Addicted.", call. = FALSE)
+  }
 
   out <- data.frame(
     addiction = ifelse(data$addiction_group_t1 == "Addicted", "Addiction", "Non-Addiction"),
@@ -55,6 +58,10 @@ validate_network_data <- function(data, nodes = network_nodes, min_group_n = min
   absent <- setdiff(required, names(data))
   if (length(absent)) {
     stop("The network data are missing: ", paste(absent, collapse = ", "), call. = FALSE)
+  }
+  if (any(!as.character(data$addiction) %in% c("Non-Addiction", "Addiction"), na.rm = TRUE) ||
+      any(!as.character(data$gender) %in% c("Female", "Male"), na.rm = TRUE)) {
+    stop("Use Non-Addiction/Addiction and Female/Male as the group labels.", call. = FALSE)
   }
 
   data <- data[, required, drop = FALSE]
@@ -117,4 +124,3 @@ read_network_data <- function(path = data_file) {
 
   validate_network_data(ready)
 }
-

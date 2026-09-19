@@ -33,7 +33,7 @@ network_iterations <- as.integer(Sys.getenv("NETWORK_ITERATIONS", unset = "4000"
 network_warmup <- as.integer(Sys.getenv("NETWORK_WARMUP", unset = "2000"))
 network_threads_per_chain <- as.integer(Sys.getenv("NETWORK_THREADS_PER_CHAIN", unset = "1"))
 network_adapt_delta <- as.numeric(Sys.getenv("NETWORK_ADAPT_DELTA", unset = "0.90"))
-network_max_treedepth <- as.integer(Sys.getenv("NETWORK_MAX_TREEDEPTH", unset = "15"))
+network_max_treedepth <- as.integer(Sys.getenv("NETWORK_MAX_TREEDEPTH", unset = "10"))
 
 if (!is.finite(minimum_group_n) || minimum_group_n < 1L) stop("NETWORK_MINIMUM_GROUP_N must be a positive integer.")
 if (!is.finite(network_chains) || network_chains < 1L) stop("NETWORK_CHAINS must be a positive integer.")

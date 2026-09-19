@@ -2,6 +2,15 @@
 /retest_data.csv
 /network_data.csv
 /results/
+/data/
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.sav
+*.dta
 **/brms_model.rds
 **/*.RData
 **/*.rda

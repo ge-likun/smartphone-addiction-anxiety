@@ -12,17 +12,40 @@ model_diagnostics <- function(fit) {
   sampled <- diagnostics[diagnostics$variable != "lp__", , drop = FALSE]
   regression <- diagnostics[grepl("^b_", diagnostics$variable), , drop = FALSE]
 
-  sampler <- rstan::get_sampler_params(fit$fit, inc_warmup = FALSE)
-  retained <- sum(vapply(sampler, nrow, integer(1)))
-  max_depth <- unique(vapply(fit$fit@stan_args, function(x) as.numeric(x$max_depth), numeric(1)))
-  if (length(max_depth) != 1L) stop("Chains used different maximum tree depths.", call. = FALSE)
+  sampler <- brms::nuts_params(fit)
+  required_sampler_parameters <- c("divergent__", "treedepth__", "energy__")
+  if (!all(required_sampler_parameters %in% sampler$Parameter)) {
+    stop("The fitted model is missing NUTS sampler diagnostics.", call. = FALSE)
+  }
+  max_depth <- fit$stan_args$control$max_treedepth
+  if (is.null(max_depth) && inherits(fit$fit, "stanfit")) {
+    max_depth <- unique(vapply(
+      fit$fit@stan_args, function(x) as.numeric(x$max_depth), numeric(1)
+    ))
+  }
+  if (length(max_depth) != 1L || !is.finite(max_depth)) {
+    stop("The fitted model does not record one maximum tree depth.", call. = FALSE)
+  }
 
-  divergences <- sum(vapply(sampler, function(x) sum(x[, "divergent__"]), numeric(1)))
-  depth_hits <- sum(vapply(sampler, function(x) sum(x[, "treedepth__"] >= max_depth), numeric(1)))
-  ebfmi <- vapply(sampler, function(x) {
-    energy <- x[, "energy__"]
+  divergent <- sampler[sampler$Parameter == "divergent__", ]
+  depth <- sampler[sampler$Parameter == "treedepth__", ]
+  energy <- sampler[sampler$Parameter == "energy__", ]
+  retained <- nrow(divergent)
+  if (nrow(depth) != retained || nrow(energy) != retained) {
+    stop("NUTS diagnostic lengths differ.", call. = FALSE)
+  }
+  divergences <- sum(divergent$Value)
+  depth_hits <- sum(depth$Value >= max_depth)
+  energy <- energy[order(energy$Chain, energy$Iteration), ]
+  energy_by_chain <- split(energy$Value, energy$Chain)
+  ebfmi <- vapply(energy_by_chain, function(energy_values) {
+    if (length(energy_values) < 3L || stats::var(energy_values) <= 0) {
+      return(NA_real_)
+    }
+    energy <- energy_values
     mean(diff(energy)^2) / stats::var(energy)
   }, numeric(1))
+  if (any(!is.finite(ebfmi))) stop("E-BFMI could not be calculated.", call. = FALSE)
 
   table <- data.frame(
     diagnostic = c(

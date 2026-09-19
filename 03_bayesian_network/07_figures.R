@@ -47,12 +47,20 @@ draw_network_panel <- function(matrix, title, settings) {
 draw_network_figure <- function(mean_networks, file, device = c("pdf", "tiff")) {
   device <- match.arg(device)
   settings <- network_plot_settings(mean_networks)
+  staged_file <- tempfile(
+    pattern = "network-figure-",
+    fileext = if (device == "pdf") ".pdf" else ".tiff"
+  )
   if (device == "pdf") {
-    grDevices::pdf(file, width = 14, height = 11, family = "Times", useDingbats = FALSE)
+    grDevices::pdf(staged_file, width = 14, height = 11, family = "Times", useDingbats = FALSE)
   } else {
-    grDevices::tiff(file, width = 14, height = 11, units = "in", res = 600, compression = "lzw")
+    grDevices::tiff(staged_file, width = 14, height = 11, units = "in", res = 600, compression = "lzw")
   }
-  on.exit(grDevices::dev.off(), add = TRUE)
+  device_open <- TRUE
+  on.exit({
+    if (device_open) grDevices::dev.off()
+    unlink(staged_file)
+  }, add = TRUE)
 
   graphics::par(mfrow = c(2, 2), oma = c(2, 2, 3, 9), family = "serif")
   panel_order <- c(
@@ -78,6 +86,11 @@ draw_network_figure <- function(mean_networks, file, device = c("pdf", "tiff")) 
     title = "Node community",
     cex = 0.95
   )
+  grDevices::dev.off()
+  device_open <- FALSE
+  if (!file.copy(staged_file, file, overwrite = TRUE)) {
+    stop("Could not save figure: ", file)
+  }
 }
 
 plot_metric_contrasts <- function(summary, output_file) {
@@ -128,9 +141,11 @@ plot_metric_contrasts <- function(summary, output_file) {
     )
 
   extension <- tolower(tools::file_ext(output_file))
+  staged_file <- tempfile(pattern = "network-metrics-", fileext = paste0(".", extension))
+  on.exit(unlink(staged_file), add = TRUE)
   if (extension %in% c("tif", "tiff")) {
     ggplot2::ggsave(
-      output_file,
+      staged_file,
       plot,
       width = 15,
       height = 13,
@@ -140,12 +155,15 @@ plot_metric_contrasts <- function(summary, output_file) {
     )
   } else {
     ggplot2::ggsave(
-      output_file,
+      staged_file,
       plot,
       width = 15,
       height = 13,
       device = grDevices::cairo_pdf
     )
+  }
+  if (!file.copy(staged_file, output_file, overwrite = TRUE)) {
+    stop("Could not save figure: ", output_file)
   }
   plot
 }

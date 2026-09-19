@@ -111,9 +111,16 @@ categorical_equivalence <- function(x, group, bound = 0.10, alpha = 0.05) {
   objective <- function(ncp) {
     stats::pchisq(chi_square, df = degrees_freedom, ncp = ncp) - alpha
   }
-  upper_limit <- 1
-  while (objective(upper_limit) > 0 && upper_limit < 1e9) upper_limit <- upper_limit * 2
-  upper_ncp <- stats::uniroot(objective, interval = c(0, upper_limit))$root
+  upper_ncp <- NA_real_
+  if (objective(0) > 0) {
+    upper_limit <- 1
+    while (objective(upper_limit) > 0 && upper_limit < 1e9) {
+      upper_limit <- upper_limit * 2
+    }
+    if (objective(upper_limit) <= 0) {
+      upper_ncp <- stats::uniroot(objective, interval = c(0, upper_limit))$root
+    }
+  }
   data.frame(
     effect_measure = "Cram\u00e9r's V",
     estimate = estimate,
@@ -122,8 +129,8 @@ categorical_equivalence <- function(x, group, bound = 0.10, alpha = 0.05) {
     confidence_level = 0.95,
     interval_type = "One-sided upper",
     equivalence_bound = bound,
-    equivalence_p = p_equivalence,
-    equivalent = p_equivalence < alpha
+    equivalence_p = if (is.finite(upper_ncp)) p_equivalence else NA_real_,
+    equivalent = is.finite(upper_ncp) && p_equivalence < alpha
   )
 }
 
@@ -271,5 +278,10 @@ save_table_docx <- function(table_data, title, note, path) {
     officer::fpar(officer::ftext(title, title_format))
   )
   document <- flextable::body_add_flextable(document, value = ft)
-  print(document, target = path)
+  staged_file <- tempfile(pattern = "publication-table-", fileext = ".docx")
+  on.exit(unlink(staged_file), add = TRUE)
+  print(document, target = staged_file)
+  if (!file.copy(staged_file, path, overwrite = TRUE)) {
+    stop("Could not save table: ", path)
+  }
 }

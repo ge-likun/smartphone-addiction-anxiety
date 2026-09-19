@@ -18,11 +18,11 @@ if (!all(zanbi_preflight$passed)) {
 message("Order-safe ZANBI preflight passed (", nrow(zanbi_preflight), " checks).")
 
 family_specs <- list(
-  NO = list(label = "Gaussian (NO)", set = "Continuous/mixed", family = NO, response = "numeric", type = "Continuous", nu = FALSE),
-  ZAGA = list(label = "Zero-adjusted Gamma (ZAGA)", set = "Continuous/mixed", family = ZAGA, response = "numeric", type = "Mixed", nu = TRUE),
-  ZAIG = list(label = "Zero-adjusted inverse Gaussian (ZAIG)", set = "Continuous/mixed", family = ZAIG, response = "numeric", type = "Mixed", nu = TRUE),
-  ZANBI = list(label = "Zero-adjusted negative binomial type I (ZANBI)", set = "Discrete", family = ZANBI_order_safe, response = "count", type = "Discrete", nu = TRUE),
-  ZABB = list(label = "Zero-adjusted beta-binomial (ZABB)", set = "Discrete", family = ZABB, response = "bounded", type = "Discrete", nu = TRUE)
+  NO = list(label = "Gaussian (NO)", set = "Continuous/mixed", ic_set = "Gaussian baseline", family = NO, response = "numeric", type = "Continuous", nu = FALSE),
+  ZAGA = list(label = "Zero-adjusted Gamma (ZAGA)", set = "Continuous/mixed", ic_set = "Zero-adjusted continuous", family = ZAGA, response = "numeric", type = "Mixed", nu = TRUE),
+  ZAIG = list(label = "Zero-adjusted inverse Gaussian (ZAIG)", set = "Continuous/mixed", ic_set = "Zero-adjusted continuous", family = ZAIG, response = "numeric", type = "Mixed", nu = TRUE),
+  ZANBI = list(label = "Zero-adjusted negative binomial type I (ZANBI)", set = "Discrete", ic_set = "Discrete", family = ZANBI_order_safe, response = "count", type = "Discrete", nu = TRUE),
+  ZABB = list(label = "Zero-adjusted beta-binomial (ZABB)", set = "Discrete", ic_set = "Discrete", family = ZABB, response = "bounded", type = "Discrete", nu = TRUE)
 )
 
 model_formulas <- function(spec, family_id) {
@@ -205,7 +205,7 @@ verify_model <- function(model, spec, family_id) {
   aic_ok <- isTRUE(all.equal(calculated_aic, package_aic, tolerance = 1e-8))
   bic_ok <- isTRUE(all.equal(calculated_bic, package_bic, tolerance = 1e-8))
   fit_strategy <- attr(model, "fit_strategy", exact = TRUE)
-  if (is.null(fit_strategy)) fit_strategy <- "pre-existing cache without strategy metadata"
+  if (is.null(fit_strategy)) fit_strategy <- "cache without fit-strategy metadata"
   staged_start_audit <- attr(model, "staged_start_audit", exact = TRUE)
   staged_iterations <- if (is.null(staged_start_audit)) {
     NA_character_
@@ -234,6 +234,7 @@ verify_model <- function(model, spec, family_id) {
     family = family_id,
     family_label = family_specs[[family_id]]$label,
     comparison_set = family_specs[[family_id]]$set,
+    likelihood_set = family_specs[[family_id]]$ic_set,
     n = as.integer(model$N),
     intended_n = nrow(model_data),
     converged = isTRUE(model$converged),
@@ -292,7 +293,7 @@ for (spec_index in seq_len(nrow(analysis_specs))) {
         cache_reused <- TRUE
         cached_model
       } else {
-        message("Rejecting pre-patch ZANBI cache and refitting: ", key)
+        message("Rejecting incompatible ZANBI cache and refitting: ", key)
         fit_candidate_model(spec, family_id)
       }
     } else {
@@ -303,9 +304,9 @@ for (spec_index in seq_len(nrow(analysis_specs))) {
     if (!status$all_checks_pass) stop("Model verification failed: ", key)
     if (!cache_reused) {
       if (cache_exists) {
-        backup_file <- sub("\\.rds$", "__pre_order_safe_backup.rds", cache_file)
+        backup_file <- sub("\\.rds$", "__incompatible_backup.rds", cache_file)
         if (!file.exists(backup_file) && !file.copy(cache_file, backup_file, overwrite = FALSE)) {
-          stop("Unable to preserve the pre-patch cache: ", cache_file)
+          stop("Unable to preserve the incompatible cache: ", cache_file)
         }
       }
       saveRDS(model, cache_file)
@@ -324,8 +325,11 @@ family_fit_status <- bind_rows(status_rows)
 write.csv(family_fit_status, file.path(output_dirs$tables, "Family_fit_status.csv"), row.names = FALSE, fileEncoding = "UTF-8")
 
 information_criteria <- family_fit_status |>
-  group_by(.data$stratum, .data$comparison_set) |>
-  mutate(delta_AIC_within_set = .data$AIC - min(.data$AIC), delta_BIC_within_set = .data$BIC - min(.data$BIC)) |>
+  group_by(.data$stratum, .data$likelihood_set) |>
+  mutate(
+    delta_AIC_within_set = if (n() > 1L) .data$AIC - min(.data$AIC) else NA_real_,
+    delta_BIC_within_set = if (n() > 1L) .data$BIC - min(.data$BIC) else NA_real_
+  ) |>
   ungroup()
 write.csv(information_criteria, file.path(output_dirs$tables, "Family_information_criteria.csv"), row.names = FALSE, fileEncoding = "UTF-8")
 

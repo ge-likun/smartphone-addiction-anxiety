@@ -19,6 +19,10 @@ source(file.path(project_root, "01_config.R"), encoding = "UTF-8")
 source(file.path(project_root, "02_data.R"), encoding = "UTF-8")
 source(file.path(project_root, "03_model.R"), encoding = "UTF-8")
 
+if (!requireNamespace("cmdstanr", quietly = TRUE)) {
+  stop("Install cmdstanr and CmdStan before fitting the model.", call. = FALSE)
+}
+
 if (file.exists(model_file)) {
   stop("The model output already exists: ", model_file, call. = FALSE)
 }
