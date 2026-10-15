@@ -13,6 +13,30 @@ check_columns <- function(data, columns, data_name = "data") {
   }
 }
 
+check_support_scores <- function(data) {
+  item_columns <- paste0("support", 1:9, "_item")
+  score_columns <- c("kinship_support", "offline_friend_support", "online_friend_support")
+  if (!any(item_columns %in% names(data))) return(invisible(TRUE))
+  check_columns(data, c(item_columns, score_columns), "analysis_data.csv")
+  if (!all(vapply(data[item_columns], is.numeric, logical(1)))) {
+    stop("Support item columns must be numeric.")
+  }
+  for (i in seq_along(score_columns)) {
+    items <- item_columns[((i - 1L) * 3L + 1L):(i * 3L)]
+    observed <- data[[score_columns[i]]]
+    complete <- stats::complete.cases(data[items])
+    inconsistent <- which(
+      (!complete & !is.na(observed)) |
+        (complete & (is.na(observed) | observed != rowSums(data[items], na.rm = TRUE)))
+    )
+    if (length(inconsistent)) {
+      stop(score_columns[i], " does not match the available item responses in ",
+           length(inconsistent), " row(s). Recalculate the subscale from complete items.")
+    }
+  }
+  invisible(TRUE)
+}
+
 normalise_id <- function(x) {
   x <- trimws(as.character(x))
   x <- sub("\\.0$", "", x)
@@ -258,6 +282,9 @@ save_table_docx <- function(table_data, title, note, path) {
   ft <- flextable::bold(ft, part = "header")
   header_rows <- which(table_data$row_type == "header")
   if (length(header_rows)) ft <- flextable::bold(ft, i = header_rows, bold = TRUE, part = "body")
+  section_rows <- header_rows[vapply(header_rows, function(i)
+    all(is.na(display[i, -1, drop = TRUE]) | display[i, -1, drop = TRUE] == ""), logical(1))]
+  for (i in section_rows) ft <- flextable::merge_at(ft, i = i, j = seq_len(ncol(display)), part = "body")
   ft <- flextable::align(ft, j = 1, align = "left", part = "all")
   if (ncol(display) > 1) ft <- flextable::align(ft, j = 2:ncol(display), align = "center", part = "all")
   ft <- flextable::border_remove(ft)

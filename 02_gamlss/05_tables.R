@@ -22,6 +22,7 @@ table6_base <- information_criteria |>
     Stratum = .data$stratum,
     Family = .data$family_label,
     n = format(.data$n, big.mark = ",", scientific = FALSE, trim = TRUE),
+    Converged = .data$converged,
     AIC = format_number(.data$AIC),
     BIC = format_number(.data$BIC),
     `Maximum absolute central Q–Q deviation` = round(.data$central_deviation, 3),
@@ -39,7 +40,9 @@ table6c <- boundary_summary |>
     `Observed n at 21` = .data$observed_n_at_21,
     `Expected n at/near 21*` = round(.data$expected_n_in_score21_bin, 1),
     `Expected n above 21` = round(.data$expected_n_above_21, 1)
-  )
+  ) |>
+  arrange(match(.data$Stratum, analysis_specs$stratum),
+          match(.data$Family, vapply(family_specs, function(x) x$label, character(1))))
 
 write.csv(table6a, file.path(output_dirs$tables, "Supplementary_Table_6A_continuous_mixed.csv"), row.names = FALSE)
 write.csv(table6b, file.path(output_dirs$tables, "Supplementary_Table_6B_discrete.csv"), row.names = FALSE)
@@ -51,6 +54,7 @@ table7 <- family_fit_status |>
     Stratum = .data$stratum,
     n = format(.data$n, big.mark = ",", scientific = FALSE, trim = TRUE),
     Adjustment = ifelse(grepl("overall$", .data$stratum), "Sex and survey year", "Survey year"),
+    Converged = .data$converged,
     `Effective df` = round(.data$effective_df, 1),
     `Log likelihood` = format_number(.data$log_likelihood),
     AIC = format_number(.data$AIC),
@@ -84,6 +88,7 @@ fit_interaction_model <- function(comparison_id, target_parameter, support_key, 
   comparison <- interaction_comparisons[[comparison_id]]
   target_support <- support_variables[[support_key]]
   formulas <- interaction_formulas(target_parameter, target_support, comparison$group, comparison$adjustment, alternative)
+  cache_identity <- gamlss_cache_identity(comparison$data, formulas)
   suffix <- if (alternative) "alternative" else "null"
   cache_file <- file.path(
     output_dirs$models,
@@ -93,13 +98,24 @@ fit_interaction_model <- function(comparison_id, target_parameter, support_key, 
     ) |> paste0(".rds")
   )
   model <- if (file.exists(cache_file)) {
-    readRDS(cache_file)
+    cached <- readRDS(cache_file)
+    verify_gamlss_cache_identity(cached, cache_identity, cache_file)
+    cached
   } else {
-    gamlss(
+    if (identical(Sys.getenv("GAMLSS_CACHE_ONLY", "false"), "true"))
+      stop("Missing comparison-model cache; fitting is disabled: ", cache_file)
+    fit_seed <- residual_seed_base + match(comparison_id, names(interaction_comparisons)) * 1000L +
+      match(target_parameter, c("mu", "nu", "sigma")) * 100L +
+      match(support_key, names(support_variables)) * 10L + as.integer(alternative)
+    set.seed(fit_seed)
+    fitted <- gamlss(
       formulas$mu, sigma.formula = formulas$sigma, nu.formula = formulas$nu,
       family = ZAGA(), data = comparison$data,
       control = gamlss.control(n.cyc = 150, trace = FALSE)
     )
+    attr(fitted, "cache_identity") <- cache_identity
+    attr(fitted, "fit_seed") <- fit_seed
+    fitted
   }
   expected_formulas <- vapply(formulas, function(value) gsub("\\s+", " ", formula_text(value)), character(1))
   observed_formulas <- vapply(c("mu", "sigma", "nu"), function(parameter) {
@@ -230,7 +246,8 @@ table6_note <- paste(
   ),
   "AIC and BIC comparisons within a stratum are limited to ZAGA versus ZAIG and ZANBI versus ZABB. NO is shown as a Gaussian baseline but is not ranked against the zero-adjusted models because its density at zero and their point probability at zero have different likelihood scales. Values are not compared across strata.",
   "NO, Gaussian; ZAGA, zero-adjusted Gamma; ZAIG, zero-adjusted inverse Gaussian; ZANBI, zero-adjusted negative binomial type I; ZABB, zero-adjusted beta-binomial.",
-  "Residual summaries are medians across 50 normalized quantile-residual evaluations; randomized draws were used at probability masses, whereas Gaussian residuals were deterministic.",
+  paste0("Residual summaries are medians across ", residual_replicates,
+         " normalized quantile-residual evaluations; randomized draws were used at probability masses, whereas Gaussian residuals were deterministic."),
   "The maximum absolute central Q-Q deviation is evaluated over theoretical unit-normal quantiles from -2.5 to 2.5, and the mean upper-tail deviation over quantiles greater than 2.5. These summaries and the percentages outside the pointwise envelopes are descriptive rather than formal goodness-of-fit tests.",
   "In section c, expected n at/near 21 is n x P(20.5 < Y <= 21.5) for NO, ZAGA and ZAIG and n x P(Y = 21) for ZANBI and ZABB; expected n above 21 is n x P(Y > 21). Only ZABB is bounded at 21. The ZABB specification is a bounded-discrete sensitivity analysis and does not imply that GAD-7 arose from 21 exchangeable Bernoulli trials.",
   "Information-criterion differences are descriptive and are not statistical significance tests."

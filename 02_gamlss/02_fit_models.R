@@ -144,7 +144,7 @@ fit_three_stage_model <- function(spec, family_id, model_data, formulas, family_
   stage_3
 }
 
-fit_candidate_model <- function(spec, family_id) {
+fit_candidate_model_impl <- function(spec, family_id) {
   model_data <- model_data_for(spec)
   formulas <- model_formulas(spec, family_id)
   family_spec <- family_specs[[family_id]]
@@ -166,7 +166,20 @@ fit_candidate_model <- function(spec, family_id) {
   model
 }
 
-verify_model <- function(model, spec, family_id) {
+fit_candidate_model <- function(spec, family_id) {
+  fit_seed <- residual_seed_base + match(spec$model_id, analysis_specs$model_id) * 100000L +
+    match(family_id, names(family_specs)) * 10000L
+  set.seed(fit_seed)
+  warnings <- character()
+  model <- withCallingHandlers(fit_candidate_model_impl(spec, family_id), warning = function(w) {
+    warnings <<- c(warnings, conditionMessage(w))
+  })
+  attr(model, "fit_warnings") <- warnings
+  attr(model, "fit_seed") <- fit_seed
+  model
+}
+
+verify_model <- function(model, spec, family_id, allow_row_permutation = FALSE) {
   formulas <- model_formulas(spec, family_id)
   expected_mu <- gsub("\\s+", " ", formula_text(formulas$mu))
   expected_parameter <- formula_text(formulas$parameter)
@@ -198,6 +211,7 @@ verify_model <- function(model, spec, family_id) {
     TRUE
   }
   model_data <- model_data_for(spec)
+  observed_data_ok <- gamlss_model_data_match(model, model_data, allow_row_permutation)
   calculated_aic <- as.numeric(model$G.deviance) + 2 * as.numeric(model$df.fit)
   calculated_bic <- as.numeric(model$G.deviance) + log(as.numeric(model$N)) * as.numeric(model$df.fit)
   package_aic <- as.numeric(AIC(model))
@@ -257,7 +271,14 @@ verify_model <- function(model, spec, family_id) {
     staged_global_deviance = staged_global_deviance,
     boundary_ok = boundary_ok,
     sample_ok = as.integer(model$N) == nrow(model_data),
+    observed_data_ok = observed_data_ok,
     iterations = as.integer(model$iter),
+    iteration_limit = if (length(model$control$n.cyc)) as.integer(model$control$n.cyc) else NA_integer_,
+    iteration_limit_reached = if (length(model$control$n.cyc)) model$iter >= model$control$n.cyc else NA,
+    warnings_recorded = !is.null(attr(model, "fit_warnings", exact = TRUE)),
+    warning_count = if (is.null(attr(model, "fit_warnings", exact = TRUE))) NA_integer_ else length(attr(model, "fit_warnings", exact = TRUE)),
+    fit_seed = if (is.null(attr(model, "fit_seed", exact = TRUE))) NA_integer_ else attr(model, "fit_seed", exact = TRUE),
+    warning_messages = paste(unique(attr(model, "fit_warnings", exact = TRUE)), collapse = " | "),
     effective_df = as.numeric(model$df.fit),
     global_deviance = as.numeric(model$G.deviance),
     log_likelihood = -as.numeric(model$G.deviance) / 2,
@@ -270,7 +291,7 @@ verify_model <- function(model, spec, family_id) {
   ) |>
     mutate(
       all_checks_pass = .data$converged & .data$family_ok & .data$zanbi_implementation_ok & .data$response_type_ok & .data$formula_ok &
-        .data$boundary_ok & .data$sample_ok & .data$AIC_ok & .data$BIC_ok
+        .data$boundary_ok & .data$sample_ok & .data$observed_data_ok & .data$AIC_ok & .data$BIC_ok
     )
 }
 
@@ -289,16 +310,28 @@ for (spec_index in seq_len(nrow(analysis_specs))) {
       cached_model <- readRDS(cache_file)
       zanbi_cache_ok <- !identical(family_id, "ZANBI") ||
         identical(attr(cached_model, "zanbi_implementation", exact = TRUE), ZANBI_ORDER_SAFE_ID)
-      if (zanbi_cache_ok) {
+      metadata_ok <- identical(attr(cached_model, "input_fingerprint"), data_fingerprint) &&
+        identical(attr(cached_model, "package_versions"),
+          c(gamlss = as.character(packageVersion("gamlss")), gamlss.dist = as.character(packageVersion("gamlss.dist"))))
+      if (zanbi_cache_ok && metadata_ok) {
         cache_reused <- TRUE
         cached_model
       } else {
-        message("Rejecting incompatible ZANBI cache and refitting: ", key)
+        if (identical(Sys.getenv("GAMLSS_CACHE_ONLY", "false"), "true"))
+          stop("Incompatible cache; fitting is disabled: ", key)
+        message("Rejecting incompatible cache and preserving it before refitting: ", key)
         fit_candidate_model(spec, family_id)
       }
     } else {
+      if (identical(Sys.getenv("GAMLSS_CACHE_ONLY", "false"), "true"))
+        stop("Missing cache; fitting is disabled: ", key)
       message("Fitting model: ", key)
       fit_candidate_model(spec, family_id)
+    }
+    if (!cache_reused) {
+      attr(model, "input_fingerprint") <- data_fingerprint
+      attr(model, "package_versions") <- c(gamlss = as.character(packageVersion("gamlss")),
+                                            gamlss.dist = as.character(packageVersion("gamlss.dist")))
     }
     status <- verify_model(model, spec, family_id)
     if (!status$all_checks_pass) stop("Model verification failed: ", key)

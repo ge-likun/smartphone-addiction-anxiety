@@ -1,3 +1,6 @@
+if (.Platform$OS.type == "windows" && !isTRUE(l10n_info()[["UTF-8"]])) {
+  suppressWarnings(Sys.setlocale("LC_CTYPE", "English_United States.UTF-8"))
+}
 script_directory <- function() {
   sourced_file <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
   if (length(sourced_file) && file.exists(sourced_file)) {

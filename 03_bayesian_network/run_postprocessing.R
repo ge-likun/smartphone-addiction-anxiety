@@ -1,3 +1,6 @@
+if (.Platform$OS.type == "windows" && !isTRUE(l10n_info()[["UTF-8"]])) {
+  suppressWarnings(Sys.setlocale("LC_CTYPE", "English_United States.UTF-8"))
+}
 arguments <- commandArgs(trailingOnly = FALSE)
 file_argument <- grep("^--file=", arguments, value = TRUE)
 frame_files <- vapply(
@@ -23,22 +26,24 @@ source(file.path(project_root, "05_networks.R"), encoding = "UTF-8")
 source(file.path(project_root, "06_metrics.R"), encoding = "UTF-8")
 source(file.path(project_root, "07_figures.R"), encoding = "UTF-8")
 source(file.path(project_root, "08_tables.R"), encoding = "UTF-8")
+source(file.path(project_root, "10_derived_diagnostics.R"), encoding = "UTF-8")
+source(file.path(Sys.getenv("PROJECT_ROOT", normalizePath("..", winslash = "/")), "R", "project.R"), encoding = "UTF-8")
 
 fit <- load_network_model(model_file)
-validate_network_model(fit)
+validate_network_model(fit, expected_data = read_network_data())
 
 diagnostics <- model_diagnostics(fit)
 write_diagnostic_table(diagnostics, output_dir)
 
 edge_draws <- extract_edge_draws(fit)
-maximum_draws <- as.integer(Sys.getenv("NETWORK_MAX_DRAWS", unset = as.character(nrow(edge_draws))))
-if (!is.finite(maximum_draws) || maximum_draws < 1L) stop("NETWORK_MAX_DRAWS must be a positive integer.", call. = FALSE)
-edge_draws <- edge_draws[seq_len(min(maximum_draws, nrow(edge_draws))), , drop = FALSE]
 
 raw_arrays <- reconstruct_network_arrays(edge_draws)
 standardized_arrays <- standardize_network_arrays(raw_arrays, fit$data)
 raw_means <- posterior_mean_networks(raw_arrays)
 standardized_means <- posterior_mean_networks(standardized_arrays)
+display_scale <- Sys.getenv("NETWORK_DISPLAY_SCALE", "raw")
+if (!display_scale %in% c("raw", "standardized")) stop("NETWORK_DISPLAY_SCALE must be raw or standardized.")
+display_means <- if (display_scale == "raw") raw_means else standardized_means
 
 for (group in names(raw_means)) {
   utils::write.csv(
@@ -52,18 +57,24 @@ for (group in names(raw_means)) {
 }
 
 draw_network_figure(
-  standardized_means,
+  display_means,
   file.path(output_dir, "Figure_4_temporal_networks.pdf"),
   "pdf"
 )
 draw_network_figure(
-  standardized_means,
+  display_means,
   file.path(output_dir, "Figure_4_temporal_networks.tiff"),
   "tiff"
 )
 
 metric_draws <- calculate_metric_draws(standardized_arrays)
 metric_summary <- summarize_metric_contrasts(metric_draws)
+write_derived_diagnostics(fit, standardized_arrays, metric_draws, output_dir)
+group_summaries <- dplyr::bind_rows(lapply(dimnames(metric_draws)$group, function(g) {
+  dplyr::bind_rows(lapply(dimnames(metric_draws)$metric, function(m)
+    data.frame(group = g, metric = m, as.list(posterior_summary(metric_draws[, m, g])))))
+}))
+write_csv(group_summaries, file.path(output_dir, "group_network_metric_summaries.csv"))
 utils::write.csv(metric_summary, file.path(output_dir, "network_metric_contrasts.csv"), row.names = FALSE)
 write_metric_tables(metric_summary, output_dir)
 plot_metric_contrasts(metric_summary, file.path(output_dir, "Figure_5_network_metric_contrasts.pdf"))
@@ -79,11 +90,11 @@ if (identical(tolower(Sys.getenv("SAVE_NETWORK_POSTERIOR", unset = "false")), "t
 }
 
 figure_legends <- c(
-  "Figure 4 | Standardized lagged networks by baseline smartphone-addiction group and sex.",
-  "Panels show posterior-mean standardized lagged coefficients for non-addicted women (a), addicted women (b), non-addicted men (c) and addicted men (d). Rows of each adjacency matrix are source nodes at T1 and columns are target nodes at T2. Blue edges are positive and orange edges are negative. Edge width represents absolute coefficient magnitude. For legibility, coefficients with an absolute posterior mean below 0.10 are not displayed. This display threshold is descriptive and does not constitute an uncertainty-based edge selection rule. All networks use the same node positions and edge-width scale.",
+  paste0("Figure 4 | ", if (display_scale == "raw") "Unstandardized" else "Standardized", " lagged networks by baseline smartphone-addiction group and sex."),
+  paste0("Panels show non-addicted women (A), addicted women (B), non-addicted men (C) and addicted men (D). Edges are posterior-mean lagged coefficients; baseline sources are in rows and follow-up targets in columns. Blue edges are positive and red edges are negative. Widths share a magnitude scale, with no upper display cap. Absolute means below ", edge_display_threshold, " are omitted from the plots only. This display threshold is descriptive. All networks use the same node positions. Source data are the exported mean matrices on the indicated coefficient scale."),
   "",
   "Figure 5 | Posterior contrasts in standardized network summaries.",
-  "Points show posterior means and horizontal lines show 95% credible intervals. Addiction-status contrasts are calculated as addicted minus non-addicted. The male-minus-female addiction contrast directly compares the two sex-specific addiction-status contrasts. Spectral radii summarize domain-specific transition matrices. Bridge strength sums absolute incoming and outgoing cross-community coefficients. Outgoing support associations retain coefficient signs. Impulse-propagation summaries apply a one-standard-deviation input to a support node and repeatedly apply the fitted transition matrix for 15 steps. The latter summaries describe the fitted model and do not estimate intervention effects."
+  paste0("Points show posterior means and lines show 95% credible intervals. The left column averages addicted-minus-non-addicted contrasts equally across sexes; the right column shows within-sex contrasts. Orange denotes women and blue denotes men. Filled circles identify intervals excluding zero, triangles identify remaining Pd > 0.90 estimates and open circles identify the rest. Pd is the larger sign probability; symbols are descriptive and not multiplicity-adjusted tests. Sub-network Stability is the within-domain spectral radius, Bridge Centrality sums absolute cross-domain weights, Potential Influence retains outgoing coefficient signs, and Cumulative Propagated Response sums signed responses over ", impulse_steps, " steps after a +1 SD input. All metrics use standardized matrices. These observational propagation summaries do not estimate causal intervention benefits. Source data: network_metric_contrasts.csv.")
 )
 writeLines(figure_legends, file.path(output_dir, "Figure_legends.txt"), useBytes = TRUE)
 writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo_postprocessing.txt"))

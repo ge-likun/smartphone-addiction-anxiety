@@ -3,8 +3,6 @@ parameter_labels <- c(
   nu = "Relative odds of GAD-7 = 0 (\u03bd)",
   sigma = "Relative positive-score dispersion (\u03c3)"
 )
-overall_limits <- list(mu = c(0, 1.80), nu = c(0, 4.80), sigma = c(0, 1.35))
-sex_limits <- list(mu = c(0, 1.90), nu = c(0, 4.70), sigma = c(0, 1.35))
 grid_length <- 180L
 loess_span <- 1.0
 
@@ -34,6 +32,8 @@ full_model_curve <- function(model, variable, parameter) {
   if (any(!is.finite(fit))) fit <- approx(grid[is.finite(fit)], fit[is.finite(fit)], grid, rule = 2)$y
   if (any(!is.finite(se))) se <- approx(grid[is.finite(se)], se[is.finite(se)], grid, rule = 2)$y
   reference <- as.numeric(predict(smoother, newdata = data.frame(support_score = 0)))
+  if (!is.finite(reference)) stop("The score-0 reference cannot be estimated for ", variable,
+                                  "; preserve the specified reference and review the observed score range.")
   tibble(
     support_score = grid,
     ratio = exp(fit - reference),
@@ -74,8 +74,15 @@ histogram_density <- histogram_observations |>
   group_by(.data$model_id, .data$support_key) |>
   mutate(density = .data$frequency / sum(.data$frequency)) |>
   ungroup()
-write.csv(curve_data, file.path(output_dirs$source_data, "Figures_2_3_S5_S6_curve_data.csv"), row.names = FALSE)
-write.csv(histogram_density, file.path(output_dirs$source_data, "Figures_2_3_S5_S6_histogram_data.csv"), row.names = FALSE)
+data_limits <- function(model_set, parameter) {
+  rows <- curve_data$model_set == model_set & curve_data$parameter == parameter
+  upper <- max(c(1, curve_data$ratio_high[rows]), na.rm = TRUE)
+  c(0, upper * 1.08)
+}
+overall_limits <- setNames(lapply(names(parameter_labels), function(p) data_limits("overall", p)), names(parameter_labels))
+sex_limits <- setNames(lapply(names(parameter_labels), function(p) data_limits("sex_stratified", p)), names(parameter_labels))
+write.csv(curve_data, file.path(output_dirs$source_data, "GAMLSS_association_curve_data.csv"), row.names = FALSE)
+write.csv(histogram_density, file.path(output_dirs$source_data, "GAMLSS_support_histogram_data.csv"), row.names = FALSE)
 
 theme_manuscript <- function() {
   theme_bw(base_size = 7.1, base_family = "Arial") +
@@ -90,9 +97,9 @@ theme_manuscript <- function() {
     )
 }
 
-density_reference_max <- 0.50
-overall_density_breaks <- c(0, 0.20, 0.40)
-sex_density_breaks <- c(0, 0.15, 0.30)
+density_reference_max <- max(.50, max(histogram_density$density, na.rm = TRUE) * 1.3)
+overall_density_breaks <- if (density_reference_max == .50) c(0, .20, .40) else pretty(c(0, density_reference_max), n = 3)
+sex_density_breaks <- if (density_reference_max == .50) c(0, .15, .30) else overall_density_breaks
 overall_histogram_display_multiplier <- 1.00
 sex_histogram_display_multiplier <- 1.12
 
@@ -261,8 +268,8 @@ sex_figure <- function(parameter) {
 }
 
 save_publication_figure(sex_figure("mu"), file.path(output_dirs$figures, "Figure_3_mu_full_model_score0_common_axes"), 183, 116)
-save_publication_figure(sex_figure("nu"), file.path(output_dirs$figures, "Supplementary_Figure_5_nu_full_model_score0_common_axes"), 183, 116)
-save_publication_figure(sex_figure("sigma"), file.path(output_dirs$figures, "Supplementary_Figure_6_sigma_full_model_score0_common_axes"), 183, 116)
+save_publication_figure(sex_figure("nu"), file.path(output_dirs$figures, "Supplementary_Figure_3_nu_full_model_score0_common_axes"), 183, 116)
+save_publication_figure(sex_figure("sigma"), file.path(output_dirs$figures, "Supplementary_Figure_4_sigma_full_model_score0_common_axes"), 183, 116)
 
 zaga_worm <- representative_worm |>
   filter(.data$family == "ZAGA") |>
@@ -271,7 +278,7 @@ zaga_worm <- representative_worm |>
     row = factor(ifelse(.data$model_set == "overall", "Overall", ifelse(.data$sex == "Male", "Men", "Women")), levels = c("Overall", "Men", "Women")),
     addiction_group = factor(.data$addiction_group, levels = c("Non-addicted", "Addicted"))
   )
-write.csv(zaga_worm, file.path(output_dirs$source_data, "Supplementary_Figure_4_ZAGA_residuals.csv"), row.names = FALSE)
+write.csv(zaga_worm, file.path(output_dirs$source_data, "Supplementary_Figure_2_ZAGA_residuals.csv"), row.names = FALSE)
 
 supplementary_figure_4 <- ggplot(zaga_worm, aes(.data$theoretical, .data$deviation)) +
   geom_ribbon(aes(ymin = .data$envelope_low, ymax = .data$envelope_high), fill = "grey85", colour = NA) +
@@ -281,4 +288,4 @@ supplementary_figure_4 <- ggplot(zaga_worm, aes(.data$theoretical, .data$deviati
   labs(x = "Unit-normal quantile", y = "Residual deviation") +
   theme_bw(base_size = 8, base_family = "Arial") +
   theme(panel.grid.minor = element_blank(), strip.background = element_rect(fill = "grey95"))
-save_publication_figure(supplementary_figure_4, file.path(output_dirs$figures, "Supplementary_Figure_4_ZAGA_residuals"), 150, 170)
+save_publication_figure(supplementary_figure_4, file.path(output_dirs$figures, "Supplementary_Figure_2_ZAGA_residuals"), 150, 170)

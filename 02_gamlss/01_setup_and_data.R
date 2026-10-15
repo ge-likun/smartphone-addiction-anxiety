@@ -23,7 +23,9 @@ options(stringsAsFactors = FALSE, width = 160)
 data_file <- Sys.getenv("GAMLSS_DATA_FILE", unset = file.path("..", "analysis_data.csv"))
 output_root <- Sys.getenv("GAMLSS_OUTPUT_DIR", unset = file.path("..", "results", "02_gamlss"))
 residual_seed_base <- 20260803L
-residual_replicates <- 50L
+residual_replicates <- as.integer(Sys.getenv("GAMLSS_RESIDUAL_REPLICATES", "50"))
+if (!is.finite(residual_replicates) || residual_replicates < 1L)
+  stop("GAMLSS_RESIDUAL_REPLICATES must be a positive integer.")
 maximum_score <- 21L
 
 output_dirs <- list(
@@ -49,6 +51,28 @@ if (!file.exists(data_file)) {
 }
 analysis_data <- read.csv(data_file, check.names = FALSE, fileEncoding = "UTF-8")
 
+support_items <- paste0("support", 1:9, "_item")
+support_scores <- c("kinship_support", "offline_friend_support", "online_friend_support")
+if (any(support_items %in% names(analysis_data))) {
+  if (!all(c(support_items, support_scores) %in% names(analysis_data))) {
+    stop("Support item and subscale columns are incomplete")
+  }
+  if (!all(vapply(analysis_data[support_items], is.numeric, logical(1)))) {
+    stop("Support item columns must be numeric")
+  }
+  for (i in seq_along(support_scores)) {
+    items <- support_items[((i - 1L) * 3L + 1L):(i * 3L)]
+    complete <- stats::complete.cases(analysis_data[items])
+    observed <- analysis_data[[support_scores[i]]]
+    inconsistent <- (!complete & !is.na(observed)) |
+      (complete & (is.na(observed) |
+                   observed != rowSums(analysis_data[items], na.rm = TRUE)))
+    if (any(inconsistent)) {
+      stop(support_scores[i], " does not match the available item responses")
+    }
+  }
+}
+
 required_variables <- c(
   "survey_year", "sex", "addiction_group", "gad7_total",
   "kinship_support", "offline_friend_support", "online_friend_support"
@@ -71,7 +95,12 @@ analysis_data <- analysis_data |>
     )), identity)
   )
 
-if (anyNA(analysis_data[required_variables])) stop("Required analysis variables contain missing values")
+complete_rows <- stats::complete.cases(analysis_data[required_variables])
+if (any(!complete_rows)) {
+  message(sum(!complete_rows), " rows with missing GAMLSS variables were excluded")
+  analysis_data <- analysis_data[complete_rows, , drop = FALSE]
+}
+if (nrow(analysis_data) == 0L) stop("No complete observations remain for GAMLSS")
 if (any(!analysis_data$gad7_total %in% 0:maximum_score)) stop("gad7_total must be integer-valued from 0 to 21")
 for (variable in c("kinship_support", "offline_friend_support", "online_friend_support")) {
   if (any(analysis_data[[variable]] < 0 | analysis_data[[variable]] > 15)) {
@@ -80,9 +109,6 @@ for (variable in c("kinship_support", "offline_friend_support", "online_friend_s
 }
 if (anyNA(analysis_data$sex) || anyNA(analysis_data$addiction_group)) {
   stop("sex and addiction_group contain values outside the documented categories")
-}
-if (!all(as.character(analysis_data$survey_year) %in% c("2023", "2024"))) {
-  stop("survey_year must contain 2023 and/or 2024")
 }
 if (nlevels(droplevels(analysis_data$survey_year)) < 2L) {
   stop("Both survey years are required for year-adjusted models")
@@ -138,9 +164,7 @@ model_data_for <- function(spec) {
 for (spec_index in seq_len(nrow(analysis_specs))) {
   spec <- analysis_specs[spec_index, ]
   stratum_data <- model_data_for(spec)
-  if (nrow(stratum_data) < 20L) {
-    stop(spec$stratum, " must contain at least 20 observations")
-  }
+  if (!nrow(stratum_data)) stop("Empty analysis stratum: ", spec$stratum)
   if (!any(stratum_data$gad7_total == 0) || !any(stratum_data$gad7_total > 0)) {
     stop(spec$stratum, " must contain both zero and positive GAD-7 scores")
   }
@@ -159,6 +183,52 @@ rhs_terms <- function(model_set) {
 }
 
 formula_text <- function(formula) paste(deparse(formula), collapse = " ")
+
+gamlss_model_data_match <- function(model, model_data, allow_row_permutation = FALSE) {
+  response <- if (is.matrix(model$y)) model$y[, 1L] else model$y
+  if (length(response) != nrow(model_data)) return(FALSE)
+  observed <- data.frame(response = as.numeric(response))
+  expected <- data.frame(response = model_data$gad7_total)
+  for (parameter in model$parameters) {
+    formula <- model[[paste0(parameter, ".formula")]]
+    intended <- stats::model.matrix(stats::delete.response(stats::terms(formula)), model_data)
+    actual <- model[[paste0(parameter, ".x")]]
+    if (is.null(actual) || !setequal(colnames(actual), colnames(intended))) return(FALSE)
+    actual <- actual[, colnames(intended), drop = FALSE]
+    for (column in seq_len(ncol(intended))) {
+      key <- paste(parameter, colnames(intended)[column], sep = "__")
+      observed[[key]] <- as.numeric(actual[, column])
+      expected[[key]] <- as.numeric(intended[, column])
+    }
+  }
+  canonical <- function(x) {
+    if (allow_row_permutation) x <- x[do.call(order, c(x, list(na.last = TRUE))), , drop = FALSE]
+    rownames(x) <- NULL
+    x
+  }
+  isTRUE(all.equal(canonical(observed), canonical(expected), tolerance = 1e-12, check.attributes = FALSE))
+}
+
+gamlss_cache_identity <- function(model_data, formulas) {
+  temporary <- tempfile(pattern = "gamlss_cache_data_", fileext = ".rds")
+  on.exit(unlink(temporary), add = TRUE)
+  saveRDS(model_data, temporary, compress = FALSE)
+  list(
+    input_fingerprint = data_fingerprint,
+    model_data_fingerprint = unname(tools::md5sum(temporary)),
+    formulas = vapply(formulas, formula_text, character(1)),
+    package_versions = c(gamlss = as.character(packageVersion("gamlss")),
+                         gamlss.dist = as.character(packageVersion("gamlss.dist")))
+  )
+}
+
+verify_gamlss_cache_identity <- function(model, expected, cache_file) {
+  if (!identical(attr(model, "cache_identity", exact = TRUE), expected)) {
+    stop("Cached model data, formulas or software could not be verified: ", cache_file,
+         ". Preserve the file and use a separate output directory for a new fit.")
+  }
+  invisible(model)
+}
 
 save_publication_figure <- function(plot, basename, width_mm = 183, height_mm = 116) {
   width_in <- width_mm / 25.4

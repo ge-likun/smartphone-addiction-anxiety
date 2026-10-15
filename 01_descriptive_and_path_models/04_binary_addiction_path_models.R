@@ -26,6 +26,7 @@ required <- c(
   "kinship_support", "offline_friend_support", "online_friend_support"
 )
 check_columns(dat, required, "analysis_data.csv")
+check_support_scores(dat)
 
 complete_rows <- stats::complete.cases(dat[, required])
 if (any(!complete_rows)) {
@@ -38,9 +39,8 @@ if (any(!is.finite(dat$mpiq_total)) ||
     any(dat$mpiq_total < 8 | dat$mpiq_total > 56)) {
   stop("mpiq_total must contain integer scores from 8 to 56.")
 }
-if (any(!dat$survey_year %in% c(2023, 2024))) {
-  stop("survey_year must contain only 2023 and 2024.")
-}
+wave_years <- sort(unique(dat$survey_year))
+if (length(wave_years) != 2L) stop("The path model specification requires two survey waves.")
 expected_group <- ifelse(dat$mpiq_total > 32, "Addicted", "Non-addicted")
 if (any(as.character(dat$addiction_group) != expected_group)) {
   stop("addiction_group must use MPIQ >32 for Addicted and MPIQ <=32 for Non-addicted.")
@@ -57,11 +57,11 @@ if (anyNA(dat$addiction_group)) {
 }
 
 dat$x <- as.numeric(dat$addiction_group == "Addicted")
-dat$year2024 <- as.numeric(dat$survey_year == 2024)
+dat$followup_indicator <- as.numeric(dat$survey_year == max(dat$survey_year))
 
 cell_counts <- table(dat$sex_group, dat$addiction_group)
-if (any(cell_counts < 20L)) {
-  stop("Each sex-by-addiction group must contain at least 20 complete observations.")
+if (any(cell_counts == 0L)) {
+  stop("Each sex-by-addiction group must contain complete observations.")
 }
 for (sex_value in levels(dat$sex_group)) {
   group_data <- dat[dat$sex_group == sex_value, , drop = FALSE]
@@ -102,10 +102,10 @@ if (selected_support != "all") {
 }
 
 model_syntax <- paste(
-  "m ~ c(a_f, a_m) * x + c(year_m_f, year_m_m) * year2024",
+  "m ~ c(a_f, a_m) * x + c(year_m_f, year_m_m) * followup_indicator",
   paste0(
     "gad7_total ~ c(cp_f, cp_m) * x + c(b1_f, b1_m) * m + ",
-    "c(b2_f, b2_m) * xm + c(year_y_f, year_y_m) * year2024"
+    "c(b2_f, b2_m) * xm + c(year_y_f, year_y_m) * followup_indicator"
   ),
   "b_add_f := b1_f + b2_f",
   "b_add_m := b1_m + b2_m",

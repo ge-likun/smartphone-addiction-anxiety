@@ -1,6 +1,6 @@
 required_packages <- c(
   "brms", "posterior", "rstan", "bayesplot", "qgraph", "ggplot2", "dplyr",
-  "tidyr", "patchwork", "officer", "flextable"
+  "tidyr", "patchwork", "officer", "flextable", "cmdstanr", "jsonlite", "cowplot", "ragg", "svglite", "magick"
 )
 
 missing_packages <- required_packages[

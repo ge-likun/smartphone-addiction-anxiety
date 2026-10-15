@@ -75,11 +75,22 @@ calculate_metric_draws <- function(arrays) {
 posterior_summary <- function(x) {
   direction_probability <- max(mean(x > 0), mean(x < 0))
   c(
+    n_draws = length(x),
     posterior_mean = mean(x),
     cri_lower = unname(stats::quantile(x, 0.025)),
     cri_upper = unname(stats::quantile(x, 0.975)),
+    probability_positive = mean(x > 0),
+    probability_negative = mean(x < 0),
     probability_of_direction = direction_probability
   )
+}
+
+metric_public_category <- function(metric) {
+  switch(metric_category(metric),
+         `Spectral radius` = "Sub-network Stability",
+         `Bridge strength` = "Bridge Centrality",
+         `Outgoing support sum` = "Potential Influence",
+         `Impulse propagation` = "Cumulative Propagated Response")
 }
 
 metric_category <- function(metric) {
@@ -212,5 +223,6 @@ summarize_network_distances <- function(distance_draws) {
       .groups = "drop"
     )
 
-  list(pairwise = pairwise, differences = distance_differences, largest = largest)
+  structure(list(pairwise = pairwise, differences = distance_differences, largest = largest),
+            n_draws = length(unique(distance_draws$draw)))
 }

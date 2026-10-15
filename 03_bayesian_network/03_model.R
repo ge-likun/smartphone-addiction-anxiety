@@ -32,7 +32,7 @@ fit_network_model <- function(
     chains = chains,
     iter = iter,
     warmup = warmup,
-    cores = min(chains, available_cores),
+    cores = min(chains, as.integer(Sys.getenv("NETWORK_CORES", available_cores))),
     threads = brms::threading(threads_per_chain),
     backend = "cmdstanr",
     seed = seed,
@@ -41,6 +41,7 @@ fit_network_model <- function(
   )
 
   dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+  attr(fit, "analysis_spec") <- gaussian_spec(data)
   saveRDS(fit, output_file, compress = FALSE)
   fit
 }
@@ -89,9 +90,21 @@ expected_edge_parameters <- function(nodes = network_nodes, prefix = "b_") {
   }))
 }
 
-validate_network_model <- function(fit, nodes = network_nodes) {
-  expected_data <- network_required_columns(nodes)
-  absent_data <- setdiff(expected_data, names(fit$data))
+gaussian_spec <- function(data) {
+  root <- Sys.getenv("PROJECT_ROOT", normalizePath("..", winslash = "/"))
+  source(file.path(root, "R", "project.R"), encoding = "UTF-8")
+  list(data_hash = object_hash(data), versions = software_versions(),
+       formula = lapply(build_network_formula()$forms, function(x) paste(deparse(x$formula), collapse = "")),
+       family = "gaussian", rescor = TRUE, prior = "normal(0,0.5)",
+       chains = network_chains, iter = network_iterations, warmup = network_warmup,
+       seed = network_seed, adapt_delta = network_adapt_delta,
+       max_treedepth = network_max_treedepth,
+       threads_per_chain = network_threads_per_chain)
+}
+
+validate_network_model <- function(fit, nodes = network_nodes, expected_data = NULL) {
+  required_columns <- network_required_columns(nodes)
+  absent_data <- setdiff(required_columns, names(fit$data))
   if (length(absent_data)) {
     stop("The fitted model data are missing: ", paste(absent_data, collapse = ", "), call. = FALSE)
   }
@@ -104,6 +117,28 @@ validate_network_model <- function(fit, nodes = network_nodes) {
       paste(missing_parameters, collapse = ", "),
       call. = FALSE
     )
+  }
+
+  if (!is.null(expected_data)) {
+    cols <- network_required_columns(nodes)
+    if (!identical(validate_network_data(fit$data, nodes), validate_network_data(expected_data, nodes)))
+      stop("Gaussian cache data differ from current input.")
+    if (!identical(attr(fit, "analysis_spec"), gaussian_spec(expected_data)))
+      stop("Gaussian cache specification or software version differs. Use a separate results directory for a new fit.")
+    expected_formulas <- build_network_formula()$forms
+    observed_terms <- lapply(fit$formula$forms, function(x) attr(terms(x$formula), "term.labels"))
+    expected_terms <- lapply(expected_formulas, function(x) attr(terms(x$formula), "term.labels"))
+    if (!identical(observed_terms, expected_terms))
+      stop("Gaussian model formula differs from the intended specification.")
+    families <- if (!is.null(fit$family$family)) list(fit$family) else fit$family
+    if (!all(vapply(families, function(x) identical(x$family, "gaussian"), logical(1))))
+      stop("Expected Gaussian response families.")
+    if (!isTRUE(fit$formula$rescor)) stop("Expected jointly estimated residual correlations.")
+    b_priors <- fit$prior$prior[fit$prior$class == "b" & nzchar(fit$prior$prior)]
+    if (!length(b_priors) || any(gsub("\\s+", "", b_priors) != "normal(0,0.5)"))
+      stop("Gaussian slope priors differ from the intended specification.")
+    if (posterior::ndraws(posterior::as_draws_array(fit)) != network_chains * (network_iterations - network_warmup))
+      stop("Gaussian cache has an unexpected posterior draw count.")
   }
 
   invisible(TRUE)

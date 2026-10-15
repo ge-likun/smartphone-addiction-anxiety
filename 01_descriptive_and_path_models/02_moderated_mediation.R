@@ -21,6 +21,7 @@ required <- c(
   "kinship_support", "offline_friend_support", "online_friend_support"
 )
 check_columns(dat, required, "analysis_data.csv")
+check_support_scores(dat)
 complete_rows <- stats::complete.cases(dat[, required])
 if (any(!complete_rows)) {
   message(sum(!complete_rows), " rows with missing model variables were excluded.")
@@ -32,19 +33,18 @@ if (any(!is.finite(dat$mpiq_total)) ||
     any(dat$mpiq_total < 8 | dat$mpiq_total > 56)) {
   stop("mpiq_total must contain integer scores from 8 to 56.")
 }
-if (any(!dat$survey_year %in% c(2023, 2024))) {
-  stop("survey_year must contain only 2023 and 2024.")
-}
+wave_years <- sort(unique(dat$survey_year))
+if (length(wave_years) != 2L) stop("The path model specification requires two survey waves.")
 
 dat$sex_group <- factor(dat$sex, levels = c("Female", "Male"))
 if (anyNA(dat$sex_group)) stop("sex must contain only Female and Male.")
 dat$x <- dat$mpiq_total - mean(dat$mpiq_total)
-dat$year2024 <- as.numeric(dat$survey_year == 2024)
+dat$followup_indicator <- as.numeric(dat$survey_year == max(dat$survey_year))
 x_sd <- stats::sd(dat$x)
 
 sex_counts <- table(dat$sex_group)
-if (any(sex_counts < 20L)) {
-  stop("Each sex group must contain at least 20 complete observations.")
+if (any(sex_counts == 0L)) {
+  stop("Each sex group must contain complete observations.")
 }
 if (length(unique(dat$survey_year)) < 2L) {
   stop("At least two survey years are required for year adjustment.")
@@ -66,9 +66,9 @@ supports <- c(
 
 model_syntax <- function(sd_x) {
   paste0(
-    "m ~ c(a_f, a_m) * x + c(year_m_f, year_m_m) * year2024\n",
+    "m ~ c(a_f, a_m) * x + c(year_m_f, year_m_m) * followup_indicator\n",
     "gad7_total ~ c(cp_f, cp_m) * x + c(b1_f, b1_m) * m + ",
-    "c(b2_f, b2_m) * xm + c(year_y_f, year_y_m) * year2024\n",
+    "c(b2_f, b2_m) * xm + c(year_y_f, year_y_m) * followup_indicator\n",
     "index_f := a_f * b2_f\n",
     "index_m := a_m * b2_m\n",
     "index_diff := index_f - index_m\n",

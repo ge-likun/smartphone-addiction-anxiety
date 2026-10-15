@@ -33,10 +33,9 @@ results <- do.call(rbind, lapply(names(pairs), function(measure) {
   variables <- pairs[[measure]]
   keep <- stats::complete.cases(dat[, variables])
   n <- sum(keep)
-  if (n < 4L) stop("At least four complete pairs are required for ", measure, ".")
-  r <- stats::cor(dat[[variables[1]]][keep], dat[[variables[2]]][keep])
+  r <- if (n > 1L) stats::cor(dat[[variables[1]]][keep], dat[[variables[2]]][keep]) else NA_real_
   z <- atanh(r)
-  se <- 1 / sqrt(n - 3)
+  se <- if (n > 3L) 1 / sqrt(n - 3) else NA_real_
   data.frame(
     measure = measure,
     complete_pairs = n,
@@ -47,13 +46,12 @@ results <- do.call(rbind, lapply(names(pairs), function(measure) {
 }))
 
 valid_intervals <- dat$interval_months[is.finite(dat$interval_months)]
-if (length(valid_intervals) == 0L) stop("No finite retest intervals were found.")
 interval_summary <- data.frame(
   n = length(valid_intervals),
-  mean_months = mean(valid_intervals),
+  mean_months = if (length(valid_intervals)) mean(valid_intervals) else NA_real_,
   sd_months = stats::sd(valid_intervals),
-  minimum_months = min(valid_intervals),
-  maximum_months = max(valid_intervals)
+  minimum_months = if (length(valid_intervals)) min(valid_intervals) else NA_real_,
+  maximum_months = if (length(valid_intervals)) max(valid_intervals) else NA_real_
 )
 
 write.csv(results, file.path(output_dir, "retest_stability.csv"), row.names = FALSE, fileEncoding = "UTF-8")

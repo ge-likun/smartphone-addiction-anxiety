@@ -61,16 +61,28 @@ draw_quantile_residuals <- function(intervals, seed) {
   qnorm(probability)
 }
 
+worm_reference_cache <- new.env(parent = emptyenv())
+
 worm_components <- function(residual_values) {
   finite <- is.finite(residual_values)
   residual <- sort(residual_values[finite])
   n <- length(residual)
-  if (n < 20L) stop("Too few finite residuals for diagnostics")
-  index <- seq_len(n)
-  theoretical <- qnorm(ppoints(n))
+  if (n < 2L) stop("Residual variance requires more than one finite observation")
+  cache_key <- as.character(n)
+  if (!exists(cache_key, envir = worm_reference_cache, inherits = FALSE)) {
+    index <- seq_len(n)
+    theoretical <- qnorm(ppoints(n))
+    assign(cache_key, list(
+      theoretical = theoretical,
+      envelope_low = qnorm(qbeta(0.025, index, n + 1L - index)) - theoretical,
+      envelope_high = qnorm(qbeta(0.975, index, n + 1L - index)) - theoretical
+    ), envir = worm_reference_cache)
+  }
+  reference <- get(cache_key, envir = worm_reference_cache, inherits = FALSE)
+  theoretical <- reference$theoretical
   deviation <- residual - theoretical
-  envelope_low <- qnorm(qbeta(0.025, index, n + 1L - index)) - theoretical
-  envelope_high <- qnorm(qbeta(0.975, index, n + 1L - index)) - theoretical
+  envelope_low <- reference$envelope_low
+  envelope_high <- reference$envelope_high
   fitted_curve <- as.numeric(predict(lm(deviation ~ theoretical + I(theoretical^2) + I(theoretical^3))))
   central <- abs(theoretical) <= 2.5
   upper_tail <- theoretical > 2.5
@@ -104,16 +116,22 @@ worm_components <- function(residual_values) {
 residual_metric_rows <- list()
 representative_worm_rows <- list()
 fallback_rows <- list()
+residual_seed_order <- c(
+  "Overall_Nonaddicted", "Overall_Addicted", "Nonaddicted_Male",
+  "Addicted_Male", "Nonaddicted_Female", "Addicted_Female"
+)
 for (family_id in names(family_specs)) {
   for (group_index in seq_len(nrow(analysis_specs))) {
     spec <- analysis_specs[group_index, ]
     key <- paste(spec$model_id, family_id, sep = "__")
+    seed_group_index <- match(spec$model_id, residual_seed_order)
+    if (is.na(seed_group_index)) stop("Unknown analysis group: ", spec$model_id)
     intervals <- quantile_residual_intervals(candidate_models[[key]], family_id)
     if (length(intervals$fallback_index)) {
       fallback_rows[[key]] <- tibble(family = family_id, model_id = spec$model_id, observation_index = intervals$fallback_index)
     }
     for (replicate_index in seq_len(residual_replicates)) {
-      seed <- residual_seed_base + group_index * 1000L + replicate_index
+      seed <- residual_seed_base + seed_group_index * 1000L + replicate_index
       worm <- worm_components(draw_quantile_residuals(intervals, seed))
       row_key <- paste(key, replicate_index, sep = "__")
       residual_metric_rows[[row_key]] <- worm$metrics |>
@@ -151,7 +169,8 @@ residual_diagnostic_summary <- residual_replicate_summary |>
   )
 representative_worm <- bind_rows(representative_worm_rows)
 
-write.csv(residual_replicate_summary, file.path(output_dirs$tables, "Family_residual_diagnostic_replicates_50.csv"), row.names = FALSE)
+write.csv(residual_replicate_summary, file.path(output_dirs$tables,
+  paste0("Family_residual_diagnostic_replicates_", residual_replicates, ".csv")), row.names = FALSE)
 write.csv(residual_diagnostic_summary, file.path(output_dirs$tables, "Family_residual_diagnostic_summary.csv"), row.names = FALSE)
 write.csv(bind_rows(fallback_rows), file.path(output_dirs$tables, "Residual_CDF_fallback_cases.csv"), row.names = FALSE)
 saveRDS(representative_worm, file.path(output_dirs$source_data, "Family_representative_worm_data.rds"))

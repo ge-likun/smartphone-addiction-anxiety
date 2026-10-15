@@ -3,10 +3,11 @@ optional_covariates <- c(
   "mother_education_code", "only_child_code", "ipaq_category_code"
 )
 
-if (!all(optional_covariates %in% names(analysis_data))) {
+if (!all(optional_covariates %in% names(analysis_data)) ||
+    any(vapply(analysis_data[intersect(optional_covariates, names(analysis_data))], function(x) all(is.na(x)), logical(1)))) {
   writeLines(
-    "Supplementary Figure 7 was not generated because one or more optional covariates were absent.",
-    file.path(output_dirs$logs, "Supplementary_Figure_7_status.txt")
+    "Supplementary Figure 5 was not generated because one or more optional covariates were absent.",
+    file.path(output_dirs$logs, "Supplementary_Figure_5_status.txt")
   )
 } else {
   covariate_data <- analysis_data |>
@@ -43,19 +44,33 @@ if (!all(optional_covariates %in% names(analysis_data))) {
     parameter_formula <- as.formula(paste("~", paste(covariate_rhs, collapse = " + ")))
     primary_parameter_formula <- as.formula(paste("~", paste(primary_rhs, collapse = " + ")))
     primary_model <- primary_models[[paste0("Addicted_", sex_value)]]
+    fit_seed <- residual_seed_base + 200000L + match(sex_value, c("Male", "Female"))
+    if (!nrow(model_data)) stop("No complete covariate-sensitivity rows for ", sex_value)
     if (nrow(model_data) != primary_model$N) {
-      stop(
-        "The covariate-sensitivity data do not contain the full primary sample for addicted ",
-        tolower(sex_value), "."
-      )
+      if (identical(Sys.getenv("GAMLSS_CACHE_ONLY", "false"), "true"))
+        stop("Matched-sample primary fit is needed; fitting is disabled.")
+      set.seed(fit_seed)
+      primary_model <- gamlss(
+        as.formula(paste("gad7_total ~", paste(primary_rhs, collapse = " + "))),
+        sigma.formula = primary_parameter_formula, nu.formula = primary_parameter_formula,
+        family = ZAGA(), data = model_data, control = fit_control())
+      if (!isTRUE(primary_model$converged)) stop("Matched-sample primary model did not converge.")
     }
+    matched_primary_models[[sex_value]] <<- primary_model
     cache_file <- file.path(
       output_dirs$models,
       paste0("Addicted_", sex_value, "__ZAGA_covariate_adjusted__", model_cache_tag, ".rds")
     )
+    cache_identity <- gamlss_cache_identity(
+      model_data, list(mu = mu_formula, sigma = parameter_formula, nu = parameter_formula))
     model <- if (file.exists(cache_file)) {
-      readRDS(cache_file)
+      cached <- readRDS(cache_file)
+      verify_gamlss_cache_identity(cached, cache_identity, cache_file)
+      cached
     } else {
+      if (identical(Sys.getenv("GAMLSS_CACHE_ONLY", "false"), "true"))
+        stop("Missing covariate-adjusted cache; fitting is disabled: ", cache_file)
+      set.seed(fit_seed)
       fit_stage <- function(mu, sigma, nu, start) {
         stage_model <- gamlss(
           mu, sigma.formula = sigma, nu.formula = nu, family = ZAGA(),
@@ -68,6 +83,8 @@ if (!all(optional_covariates %in% names(analysis_data))) {
       stage_mu <- fit_stage(mu_formula, primary_parameter_formula, primary_parameter_formula, primary_model)
       stage_sigma <- fit_stage(mu_formula, parameter_formula, primary_parameter_formula, stage_mu)
       fitted_model <- fit_stage(mu_formula, parameter_formula, parameter_formula, stage_sigma)
+      attr(fitted_model, "cache_identity") <- cache_identity
+      attr(fitted_model, "fit_seed") <- fit_seed
       saveRDS(fitted_model, cache_file)
       fitted_model
     }
@@ -84,10 +101,11 @@ if (!all(optional_covariates %in% names(analysis_data))) {
     model
   }
 
+  matched_primary_models <- list()
   adjusted_models <- list(Male = fit_adjusted_model("Male"), Female = fit_adjusted_model("Female"))
   sensitivity_curves <- bind_rows(lapply(c("Male", "Female"), function(sex_value) {
     bind_rows(
-      full_model_curve(primary_models[[paste0("Addicted_", sex_value)]], "kinship_support", "mu") |> mutate(specification = "Primary"),
+      full_model_curve(matched_primary_models[[sex_value]], "kinship_support", "mu") |> mutate(specification = "Primary"),
       full_model_curve(adjusted_models[[sex_value]], "kinship_support", "mu") |> mutate(specification = "Covariate-adjusted")
     ) |>
       mutate(sex = sex_value, .before = 1)
@@ -96,16 +114,14 @@ if (!all(optional_covariates %in% names(analysis_data))) {
       sex = factor(.data$sex, levels = c("Male", "Female")),
       specification = factor(.data$specification, levels = c("Primary", "Covariate-adjusted"))
     )
-  write.csv(sensitivity_curves, file.path(output_dirs$source_data, "Supplementary_Figure_7_covariate_sensitivity.csv"), row.names = FALSE)
+  write.csv(sensitivity_curves, file.path(output_dirs$source_data, "Supplementary_Figure_5_covariate_sensitivity.csv"), row.names = FALSE)
 
   colours <- c(Primary = "#4D4D4D", `Covariate-adjusted` = "#009E73")
   if (max(abs(sensitivity_curves$ratio[sensitivity_curves$support_score == 0] - 1)) > 1e-10) {
-    stop("Supplementary Figure 7 is not referenced to support score 0")
+    stop("Supplementary Figure 5 is not referenced to support score 0")
   }
-  if (max(sensitivity_curves$ratio_high, na.rm = TRUE) > sex_limits$mu[2]) {
-    stop("Supplementary Figure 7 common axis would clip an interval")
-  }
-  supplementary_figure_7 <- ggplot(
+  sensitivity_limits <- c(0, 1.08 * max(c(1, sensitivity_curves$ratio_high), na.rm = TRUE))
+  supplementary_figure_5 <- ggplot(
     sensitivity_curves,
     aes(.data$support_score, .data$ratio, colour = .data$specification, fill = .data$specification, linetype = .data$specification, group = .data$specification)
   ) +
@@ -117,7 +133,7 @@ if (!all(optional_covariates %in% names(analysis_data))) {
     scale_fill_manual(values = colours, name = NULL) +
     scale_linetype_manual(values = c(Primary = "solid", `Covariate-adjusted` = "longdash"), name = NULL) +
     scale_x_continuous(breaks = c(0, 5, 10, 15), expand = expansion(mult = 0)) +
-    scale_y_continuous(limits = sex_limits$mu, expand = expansion(mult = 0)) +
+    scale_y_continuous(limits = sensitivity_limits, expand = expansion(mult = 0)) +
     coord_cartesian(xlim = c(-0.5, 15.5), expand = FALSE, clip = "off") +
     labs(x = "Kinship-support score", y = parameter_labels[["mu"]]) +
     theme_manuscript() +
@@ -126,6 +142,6 @@ if (!all(optional_covariates %in% names(analysis_data))) {
       strip.text = element_text(face = "plain"),
       legend.position = "bottom"
     )
-  save_publication_figure(supplementary_figure_7, file.path(output_dirs$figures, "Supplementary_Figure_7_covariate_sensitivity_score0"), 183, 82)
-  writeLines("Supplementary Figure 7 was generated.", file.path(output_dirs$logs, "Supplementary_Figure_7_status.txt"))
+  save_publication_figure(supplementary_figure_5, file.path(output_dirs$figures, "Supplementary_Figure_5_covariate_sensitivity_score0"), 183, 82)
+  writeLines("Supplementary Figure 5 was generated.", file.path(output_dirs$logs, "Supplementary_Figure_5_status.txt"))
 }

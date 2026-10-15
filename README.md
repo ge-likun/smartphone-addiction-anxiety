@@ -1,202 +1,64 @@
-# Smartphone addiction, social support and anxiety
+# Smartphone addiction, source-specific social support and anxiety
 
-This repository contains the R code used for three parts of the manuscript:
-descriptive and sex-grouped path analyses, GAMLSS distributional regression,
-and Bayesian longitudinal network analysis.
+R code for the manuscript's descriptive statistics, measurement analyses, sex-grouped path models, GAMLSS and Bayesian longitudinal networks.
 
-The AMOS confirmatory factor analysis and preparation of the de-identified
-input datasets are outside this repository. Their outputs cannot be reproduced
-from these scripts alone.
+## Data access
 
-## Software
+The de-identified participant-level datasets are deposited in ScienceDB at [10.57760/sciencedb.psych.000yz](https://doi.org/10.57760/sciencedb.psych.000yz). Access is restricted; requests should be submitted through ScienceDB.
 
-The reference analyses used R 4.5.1. The descriptive and path-model workflow
-used `dplyr` 1.1.4, `lavaan` 0.6-21, `flextable` 0.9.7 and `officer` 0.6.7.
-The GAMLSS workflow used `gamlss` 5.4-22 and `gamlss.dist` 6.1-1. The Bayesian
-network model used `brms` 2.22.0, `cmdstanr` 0.9.0 and CmdStan 2.36.0. Required
-packages are checked by the analysis scripts and are not installed
-automatically.
+## Run analyses
 
-## Repository structure
-
-### `01_descriptive_and_path_models`
-
-| File | Purpose |
-|---|---|
-| `00_functions.R` | Shared functions for effect sizes, equivalence tests and publication tables |
-| `01_descriptive_tables.R` | Main Table 1 and Supplementary Tables 1 and 2 |
-| `02_moderated_mediation.R` | Sex-grouped conditional-association models and Supplementary Table 5 |
-| `03_retest_stability.R` | Retest-stability summaries |
-| `04_binary_addiction_path_models.R` | Binary addiction-status sensitivity analysis of the sex-grouped path models |
-| `04_binary_addiction_path_models_manual_check.R` | Point-estimate check for the binary sensitivity models without bootstrap resampling |
-| `05_combine_binary_runs.R` | Combines separately fitted support-source results after completion checks |
-| `run_all.R` | Runs the descriptive, continuous-MPIQ path and retest analyses |
-| `run_binary_sensitivity.R` | Runs the binary addiction-status sensitivity analysis separately |
-| `run_combine_binary_runs.R` | Combines separately fitted binary-sensitivity results |
-
-The descriptive-table script performs equivalence analyses for every
-characteristic reported with an effect-size estimate in Main Table 1 and
-Supplementary Tables 1 and 2. Continuous variables use two one-sided tests
-with the bound |d| < 0.10. Categorical variables use a one-sided upper
-confidence limit for Cramér's V with the bound V < 0.10.
-
-The primary path models use continuous MPIQ scores. The binary sensitivity
-models use the predefined classification of scores greater than 32 as addicted
-and scores of 32 or lower as non-addicted. The continuous and binary exposure
-specifications are fitted in separate models.
-
-To run the binary sensitivity analysis, set the input and output paths, then
-source its runner from `01_descriptive_and_path_models`:
+1. Install the required R packages and CmdStan (see [software requirements](docs/software.md)).
+2. Copy `config.R.example` to `local_config.R`. Place the controlled-access `cross_sectional.csv` and `longitudinal.csv` in `data_raw/`, or set their paths under `shared`. Set output locations as needed. The default input mode is `shared`.
+3. From this repository, run:
 
 ```r
-Sys.setenv(
-  ANALYSIS_DATA_FILE = "path/to/analysis_data.csv",
-  BINARY_PATH_OUTPUT_DIR = "results/01_binary_addiction_path_models",
-  BOOTSTRAP_REPS = "5000"
-)
-source("run_binary_sensitivity.R", encoding = "UTF-8")
+source("run_pipeline.R", encoding = "UTF-8")
+run_pipeline("plan")
+run_pipeline("all")
 ```
 
-The binary script uses 5,000 bootstrap samples by default. The independent
-point-estimate check fits the two equations with ordinary least squares and
-compares all sex-specific path coefficients with the lavaan output:
+`all` prepares the datasets and runs the listed analysis stages to generate model results, tables, figures and diagnostics. See [manuscript outputs](docs/outputs.md) for the output map and software-specific limitations. Bayesian fitting and path-model bootstrap resampling can take substantial time. `plan` lists the stages and input files without fitting.
+
+Stages can be run separately:
 
 ```r
-source("04_binary_addiction_path_models_manual_check.R", encoding = "UTF-8")
+run_pipeline("prepare")
+run_pipeline("descriptive")
+run_pipeline("measurement")
+run_pipeline("binary")
+run_pipeline("path_tables")
+run_pipeline("gamlss")
+run_pipeline("gaussian_fit")
+run_pipeline("gaussian_results")
+run_pipeline("gaussian_ppc")
+run_pipeline("ordinal_fit")
+run_pipeline("ordinal_results")
 ```
 
-For separate runs of the three support sources, `SUPPORT_SOURCE` may be set to
-`kinship_support`, `offline_friend_support` or `online_friend_support`. Each
-run needs a separate `BINARY_PATH_OUTPUT_DIR` to retain its output files.
-When the three result directories are named `kinship`, `offline` and `online`
-under one parent directory, they can be combined without refitting:
+Participant-level data and fitted models are not included in this code repository. Input files remain in `data_raw/`; prepared datasets are written to `data/` and results to `results/`. Participant files, generated results and `local_config.R` are excluded from version control. See [input data and scoring](docs/data.md) for coding and linkage rules. For source questionnaire exports, set `input_mode = "raw"` and configure the `raw` file paths, worksheet names and column mappings. Excel and CSV are supported.
 
-```r
-Sys.setenv(
-  BINARY_PARALLEL_BASE_DIR = "path/to/separate_results",
-  BINARY_PATH_OUTPUT_DIR = "results/01_binary_addiction_path_models"
-)
-source("run_combine_binary_runs.R", encoding = "UTF-8")
+MCMC and bootstrap output can vary across software and hardware environments. Analysis runs record software versions, seeds and configuration.
+
+## Resume and parallel execution
+
+Gaussian and ordinal caches are checked against the current data, formulas, software versions and sampling specification. Compatible fits are reused. Incompatible caches stop execution; use a different results directory to keep both analyses.
+
+Chain concurrency is configured with `network$cores`. Ordinal targets can also be divided between independent terminal processes:
+
+```sh
+Rscript run_pipeline.R ordinal_fit local_config.R support
+Rscript run_pipeline.R ordinal_fit local_config.R mpiq
 ```
 
-The resulting coefficient file reports the sex-specific paths and the defined
-female-minus-male contrasts. In these models, `b1` is the support coefficient
-in the non-addicted group, `b1 + b2` is the corresponding coefficient in the
-addicted group, and `b2` is their difference. Product terms are reported as
-cross-sectional association summaries. Reported P values use a two-sided
-normal approximation with bootstrap standard errors; confidence intervals
-are bias-corrected bootstrap intervals. The binary models assess associations
-under the stated grouping rule and do not validate the cut-off as a clinical
-threshold.
+Target lists such as `kin,offline` are accepted. Use disjoint target lists for concurrent processes. Compatible cached targets are skipped. Run `ordinal_results` once after all targets finish. A target lock prevents two processes from writing the same fit. If a process is terminated, check that no fit is running before manually removing its empty `.lock` directory.
 
-### `02_gamlss`
+## Checks and outputs
 
-| File | Purpose |
-|---|---|
-| `00_zanbi_order_safe.R` | Order-safe ZANBI functions and preflight checks for `gamlss.dist` 6.1-1 |
-| `01_setup_and_data.R` | Package checks, data validation, analysis strata and model formulas |
-| `02_fit_models.R` | Fits and verifies NO, ZAGA, ZAIG, ZANBI and ZABB models |
-| `03_residual_diagnostics.R` | Reproducible normalized quantile residuals and boundary summaries |
-| `04_figures.R` | Main Figures 2 and 3 and Supplementary Figures 4–6 |
-| `05_tables.R` | Supplementary Tables 6–8 |
-| `06_covariate_sensitivity.R` | Supplementary Figure 7 |
-| `run_all.R` | Runs the seven scripts in order |
-
-The GAMLSS code combines the verified order-safe ZANBI implementation used for
-the reported discrete sensitivity results with model cache names keyed to the
-data and the installed `gamlss` and `gamlss.dist` versions. Within each
-stratum, information-criterion differences are calculated for ZAGA versus
-ZAIG and for ZANBI versus ZABB. The Gaussian model is retained as a baseline;
-its density at zero is not ranked against the zero-adjusted models' point
-probability at zero.
-The shaded intervals in Figures 2 and 3 and Supplementary Figures 5–7 come
-from a post-estimation LOESS summary of fitted values. They are descriptive
-intervals for that summary, not GAMLSS parameter confidence intervals or
-tests of differences between curves.
-
-### `03_bayesian_network`
-
-| File | Purpose |
-|---|---|
-| `00_packages.R` | Checks the required R packages |
-| `01_config.R` | Defines nodes, groups, seeds, paths and sampling settings |
-| `02_data.R` | Imports, recodes and validates the two-wave network data |
-| `03_model.R` | Defines, fits and loads the multivariate `brms` model |
-| `04_diagnostics.R` | Summarizes convergence and sampler diagnostics |
-| `05_networks.R` | Reconstructs group-specific posterior network matrices |
-| `06_metrics.R` | Calculates network summaries, contrasts and distances |
-| `07_figures.R` | Creates Main Figures 4 and 5 |
-| `08_tables.R` | Creates Supplementary Tables 9–12 |
-| `run_fit_model.R` | Fits a new Bayesian model |
-| `run_postprocessing.R` | Generates results from an existing fitted model |
-
-The separate Bayesian scripts correspond to distinct stages of one analysis.
-This keeps the computationally expensive model fit independent of diagnostics,
-network reconstruction, figures and tables.
-
-## Input files
-
-Participant-level data and fitted models are not included. The default input
-files are `analysis_data.csv`, `retest_data.csv` and `network_data.csv` in the
-repository root. These filenames are excluded by `.gitignore`.
-
-`analysis_data.csv` must be the integrated cross-sectional analysis dataset.
-It includes `retest_status` for participants surveyed in 2023 so that
-Supplementary Table 2 can be generated. A pooled dataset without this field
-is insufficient for `01_descriptive_tables.R`. The path models additionally
-require `mpiq_total`, `addiction_group`, `gad7_total`, `survey_year`, `sex` and
-the three support scores. `retest_data.csv` contains one row per linked pair
-with the T1 and T2 support scores. `network_data.csv` contains the linked
-T1 and T2 support scores and item-level GAD-7 and MPIQ responses. The scripts
-check their required columns and coding before analysis.
-
-Alternative locations can be supplied before running the code:
-
-```r
-Sys.setenv(
-  ANALYSIS_DATA_FILE = "path/to/analysis_data.csv",
-  RETEST_DATA_FILE = "path/to/retest_data.csv",
-  GAMLSS_DATA_FILE = "path/to/analysis_data.csv",
-  NETWORK_DATA_FILE = "path/to/network_data.csv",
-  NETWORK_MODEL_FILE = "path/to/brms_model.rds"
-)
+```sh
+Rscript run_code_checks.R
+Rscript tests/test_metrics.R
+Rscript tests/test_data_pipeline.R
 ```
 
-The scripts calculate sample sizes from the supplied data. Study-design checks
-for score ranges, grouping variables, analysis strata and sufficient variation
-are retained.
-
-## Running the code
-
-Set the working directory to the relevant analysis folder and source its runner.
-
-```r
-# Descriptive, path-model and retest analyses
-setwd("01_descriptive_and_path_models")
-source("run_all.R", encoding = "UTF-8")
-
-# Binary addiction-status sensitivity analysis
-source("run_binary_sensitivity.R", encoding = "UTF-8")
-
-# GAMLSS analyses
-setwd("../02_gamlss")
-source("run_all.R", encoding = "UTF-8")
-
-# Bayesian post-processing using an existing fitted model
-setwd("../03_bayesian_network")
-source("run_postprocessing.R", encoding = "UTF-8")
-```
-
-The Bayesian model is fitted only when `run_fit_model.R` is sourced. Model
-fitting is computationally intensive. The post-processing scripts use an
-existing fitted model and do not start a new fit.
-
-The reference Bayesian fit used four chains, 4,000 iterations per chain,
-2,000 warmup iterations, seed 123, `adapt_delta = 0.90` and maximum tree
-depth 10. Of 8,000 retained transitions, 5,699 reached that depth. The
-diagnostic script reports this condition. A refit with a different maximum
-tree depth, such as `NETWORK_MAX_TREEDEPTH = "15"`, produces a new fitted
-model whose diagnostics and results should be reviewed separately.
-
-Generated files are written under `results/`, which is excluded from version
-control. Each workflow writes software information with its results.
+Tests use synthetic questionnaire records and predefined network examples to check data preparation and network calculations without participant data. Data-preparation tests cover two sample sizes and write test files to `results/tests/`. The GitHub Actions workflow is configured to run source, network-metric and data-preparation checks on Linux. These checks do not fit Bayesian models. See [manuscript outputs](docs/outputs.md) for the manuscript figure/table map and generated files, and [analysis definitions](docs/methods.md) for model and metric definitions.

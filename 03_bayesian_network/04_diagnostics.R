@@ -11,16 +11,24 @@ model_diagnostics <- function(fit) {
   )
   sampled <- diagnostics[diagnostics$variable != "lp__", , drop = FALSE]
   regression <- diagnostics[grepl("^b_", diagnostics$variable), , drop = FALSE]
+  residual_sd <- sampled[grepl("^sigma_", sampled$variable), , drop = FALSE]
+  residual_correlations <- sampled[grepl("^rescor__", sampled$variable), , drop = FALSE]
+  other <- sampled[!sampled$variable %in% c(regression$variable, residual_sd$variable, residual_correlations$variable), , drop = FALSE]
 
   sampler <- brms::nuts_params(fit)
   required_sampler_parameters <- c("divergent__", "treedepth__", "energy__")
   if (!all(required_sampler_parameters %in% sampler$Parameter)) {
     stop("The fitted model is missing NUTS sampler diagnostics.", call. = FALSE)
   }
-  max_depth <- fit$stan_args$control$max_treedepth
+  max_depth <- attr(fit, "analysis_spec")$max_treedepth
+  if (is.null(max_depth)) max_depth <- fit$stan_args$control$max_treedepth
   if (is.null(max_depth) && inherits(fit$fit, "stanfit")) {
     max_depth <- unique(vapply(
-      fit$fit@stan_args, function(x) as.numeric(x$max_depth), numeric(1)
+      fit$fit@stan_args, function(x) {
+        z <- x$control$max_treedepth
+        if (is.null(z)) z <- x$max_depth
+        if (is.null(z)) NA_real_ else as.numeric(z)
+      }, numeric(1)
     ))
   }
   if (length(max_depth) != 1L || !is.finite(max_depth)) {
@@ -75,6 +83,19 @@ model_diagnostics <- function(fit) {
     ),
     stringsAsFactors = FALSE
   )
+
+  groups <- list("Residual SD parameters" = residual_sd, "Residual correlations" = residual_correlations,
+                 "Other sampled parameters" = other)
+  additional <- do.call(rbind, lapply(names(groups), function(label) {
+    x <- groups[[label]]
+    data.frame(diagnostic = label, parameters_or_transitions = nrow(x),
+      result = if (nrow(x)) sprintf("max Rhat %.4f; min bulk ESS %.0f; min tail ESS %.0f",
+                                   max(x$rhat), min(x$ess_bulk), min(x$ess_tail)) else "No parameters in this category")
+  }))
+  table <- rbind(table[1L, ], additional, table[-1L, ])
+  chain_table <- data.frame(diagnostic = "E-BFMI by chain", parameters_or_transitions = length(ebfmi),
+                            result = paste(sprintf("%.3f", ebfmi), collapse = ", "))
+  table <- rbind(table, chain_table)
 
   list(full = diagnostics, table = table, ebfmi = ebfmi)
 }

@@ -23,11 +23,10 @@ network_groups <- c(
   addicted_male = "Addicted men"
 )
 
-network_seed <- 123L
+network_seed <- as.integer(Sys.getenv("NETWORK_SEED", "123"))
 layout_seed <- 20260913L
-edge_display_threshold <- 0.10
-impulse_steps <- 15L
-minimum_group_n <- as.integer(Sys.getenv("NETWORK_MINIMUM_GROUP_N", unset = "20"))
+edge_display_threshold <- as.numeric(Sys.getenv("NETWORK_DISPLAY_THRESHOLD", "0.12"))
+impulse_steps <- as.integer(Sys.getenv("NETWORK_IMPULSE_STEPS", "15"))
 network_chains <- as.integer(Sys.getenv("NETWORK_CHAINS", unset = "4"))
 network_iterations <- as.integer(Sys.getenv("NETWORK_ITERATIONS", unset = "4000"))
 network_warmup <- as.integer(Sys.getenv("NETWORK_WARMUP", unset = "2000"))
@@ -35,7 +34,8 @@ network_threads_per_chain <- as.integer(Sys.getenv("NETWORK_THREADS_PER_CHAIN", 
 network_adapt_delta <- as.numeric(Sys.getenv("NETWORK_ADAPT_DELTA", unset = "0.90"))
 network_max_treedepth <- as.integer(Sys.getenv("NETWORK_MAX_TREEDEPTH", unset = "10"))
 
-if (!is.finite(minimum_group_n) || minimum_group_n < 1L) stop("NETWORK_MINIMUM_GROUP_N must be a positive integer.")
+if (!is.finite(impulse_steps) || impulse_steps < 1L) stop("NETWORK_IMPULSE_STEPS must be positive.")
+if (!is.finite(edge_display_threshold) || edge_display_threshold < 0) stop("NETWORK_DISPLAY_THRESHOLD must be non-negative.")
 if (!is.finite(network_chains) || network_chains < 1L) stop("NETWORK_CHAINS must be a positive integer.")
 if (!is.finite(network_iterations) || network_iterations < 2L) stop("NETWORK_ITERATIONS must be at least 2.")
 if (!is.finite(network_warmup) || network_warmup < 1L || network_warmup >= network_iterations) {

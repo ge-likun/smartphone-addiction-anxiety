@@ -1,3 +1,6 @@
+if (.Platform$OS.type == "windows" && !isTRUE(l10n_info()[["UTF-8"]])) {
+  suppressWarnings(Sys.setlocale("LC_CTYPE", "English_United States.UTF-8"))
+}
 arguments <- commandArgs(trailingOnly = FALSE)
 file_argument <- grep("^--file=", arguments, value = TRUE)
 frame_files <- vapply(
@@ -23,11 +26,15 @@ if (!requireNamespace("cmdstanr", quietly = TRUE)) {
   stop("Install cmdstanr and CmdStan before fitting the model.", call. = FALSE)
 }
 
-if (file.exists(model_file)) {
-  stop("The model output already exists: ", model_file, call. = FALSE)
-}
-
 network_data <- read_network_data(data_file)
-fit_network_model(network_data, output_file = model_file)
+if (nzchar(Sys.getenv("CMDSTAN"))) cmdstanr::set_cmdstan_path(Sys.getenv("CMDSTAN"))
+if (file.exists(model_file)) {
+  fit <- load_network_model(model_file)
+  validate_network_model(fit, expected_data = network_data)
+  message("Verified Gaussian cache; no refit.")
+} else {
+  fit <- fit_network_model(network_data, output_file = model_file)
+  validate_network_model(fit, expected_data = network_data)
+}
 
 writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo_model_fit.txt"))

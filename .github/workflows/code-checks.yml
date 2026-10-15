@@ -1,0 +1,23 @@
+name: Code checks
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.5.1'
+      - name: Install test dependency
+        run: Rscript -e 'install.packages("dplyr", repos = "https://cloud.r-project.org")'
+      - name: Check source files
+        run: Rscript run_code_checks.R
+      - name: Check network calculations
+        run: Rscript tests/test_metrics.R
+      - name: Check raw-data preparation
+        run: Rscript tests/test_data_pipeline.R

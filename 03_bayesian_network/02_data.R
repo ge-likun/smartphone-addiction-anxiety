@@ -53,7 +53,8 @@ map_integrated_retest_data <- function(data, nodes = network_nodes) {
   out
 }
 
-validate_network_data <- function(data, nodes = network_nodes, min_group_n = minimum_group_n) {
+validate_network_data <- function(data, nodes = network_nodes) {
+  data <- as.data.frame(data)
   required <- network_required_columns(nodes)
   absent <- setdiff(required, names(data))
   if (length(absent)) {
@@ -100,15 +101,15 @@ validate_network_data <- function(data, nodes = network_nodes, min_group_n = min
   }
 
   group_counts <- table(data$addiction, data$gender)
-  if (any(group_counts < min_group_n)) {
+  if (any(group_counts == 0L)) {
     stop(
-      "Each addiction-by-sex group must contain at least ", min_group_n,
-      " complete observations. Observed counts: ",
+      "Each addiction-by-sex group must be represented. Observed counts: ",
       paste(group_counts, collapse = ", "),
       call. = FALSE
     )
   }
 
+  rownames(data) <- NULL
   data
 }
 
